@@ -26,7 +26,6 @@ public class GatewayServer implements LoggingServer {
     private final HttpServer httpServer;
     private final GatewayPeerServerImpl peerServer;
     private final Map<Long, InetSocketAddress> peerIDtoAddress;
-    private final long peerServerId;
     private final Logger logger;
     private final AtomicLong nextRequestId;
 
@@ -40,8 +39,7 @@ public class GatewayServer implements LoggingServer {
         this.httpPort = HTTPServerPort;
         this.peerIDtoAddress = this.peerServer.getMap();
         this.nextRequestId = new AtomicLong(0);
-        this.logger = initializeLogging(GatewayServer.class.getCanonicalName() + "-on-HTTP-port-" + httpPort);
-        this.peerServerId = this.peerServer.getServerId();
+        this.logger = initializeLogging(edu.yu.cs.com3800.stage4.GatewayServer.class.getCanonicalName() + "-on-HTTP-port-" + httpPort);
 
         // Set up the server
         httpServer = HttpServer.create(new InetSocketAddress(HTTPServerPort), 0);
@@ -51,8 +49,7 @@ public class GatewayServer implements LoggingServer {
             t.setDaemon(true);
             return t;
         }));
-        httpServer.createContext("/compileandrun", new CompileAndRunHandler());
-        httpServer.createContext("/leader", new GetLeaderHandler());
+        httpServer.createContext("/compileandrun", new edu.yu.cs.com3800.stage4.GatewayServer.CompileAndRunHandler());
     }
 
     private class CompileAndRunHandler implements HttpHandler {
@@ -71,9 +68,7 @@ public class GatewayServer implements LoggingServer {
                 return;
             }
 
-            // Check content type
-            List<String> contentType = exchange.getRequestHeaders().get("Content-type");
-            if (!MyUtil.containsIgnoreCase(contentType, "text/x-java-source")) {
+            if (!"text/x-java-source".equals(exchange.getRequestHeaders().getFirst("Content-Type"))) {
                 // if the content type isn't correct
                 sendResponse(exchange, HttpURLConnection.HTTP_BAD_REQUEST, "");
                 return;
@@ -127,11 +122,11 @@ public class GatewayServer implements LoggingServer {
                 } catch (ConnectException e) {
                     logger.fine("Unable to connect to leader at host " + msgToLeader.getReceiverHost() + " and port " + msgToLeader.getReceiverPort());
                     try {
-						Thread.sleep(10000); // Leader probably just died, wait a bit for gossiper to notice
-					} catch (InterruptedException e1) {
-						return;
-					}
-                    continue isCompletedLoop;
+                        Thread.sleep(10000); // Leader probably just died, wait a bit for gossiper to notice
+                    } catch (InterruptedException e1) {
+                        return;
+                    }
+                    continue;
                 } catch (IOException e) {
                     logger.log(Level.SEVERE, "IOException occured in gateway", e);
                 } catch (InterruptedException e) {
@@ -162,54 +157,18 @@ public class GatewayServer implements LoggingServer {
         }
     }
 
-    private class GetLeaderHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            var logger = requestHandlerLogger.get();
-            logger.fine("/leader recieved HTTP " + exchange.getRequestMethod() + " request from " + exchange.getRemoteAddress());
-            // check request method
-            if (!exchange.getRequestMethod().equalsIgnoreCase("GET")) {
-                // if the method is not GET, send a 405 response
-                exchange.sendResponseHeaders(HttpURLConnection.HTTP_BAD_METHOD, 0);
-                exchange.close();
-                logger.finer("Responded to " + exchange.getRemoteAddress() + " with HTTP 405 (Bad Method)");
-                return;
-            }
 
-            Vote leader = peerServer.getCurrentLeader();
-            if (leader == null) {
-                // if there is no leader
-                exchange.sendResponseHeaders(HttpURLConnection.HTTP_NO_CONTENT, -1);
-                exchange.close();
-                logger.finer("Responded to " + exchange.getRemoteAddress() + " with HTTP 204 (No Content)");
-                return;
-            }
-
-            StringBuilder response = new StringBuilder();
-            response.append(peerServerId + ": " + peerServer.getPeerState() + "\n");
-            for (long id : peerIDtoAddress.keySet()) {
-                if (!peerServer.isPeerDead(id)) {
-                    response.append(id + ": ");
-                    response.append(leader.getProposedLeaderID() == id ? "LEADER\n" : "FOLLOWER\n");
-                }
-            }
-            exchange.sendResponseHeaders(HttpURLConnection.HTTP_OK, response.length());
-            exchange.getResponseBody().write(response.toString().getBytes());
-            exchange.close();
-            logger.finer("Responded to " + exchange.getRemoteAddress() + " with HTTP 200 (OK)");
-        }
-    }
 
     public void start() {
         logger.info("Starting gateway server...");
-   //     peerServer.start();
+        //     peerServer.start();
         httpServer.start();
         logger.severe("Gateway HTTP server started on port " + httpPort);
     }
 
     public void shutdown() {
         httpServer.stop(0);
-    //    peerServer.shutdown();
+        //    peerServer.shutdown();
         logger.severe("Gateway server stopped");
     }
 
