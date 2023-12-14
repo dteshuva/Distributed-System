@@ -10,8 +10,5 @@ public class GatewayPeerServerImpl extends ZooKeeperPeerServerImpl{
         this.setPeerState(ServerState.OBSERVER);
         this.setName("GatewayPeerServerImpl-udpPort-" + this.getUdpPort());
     }
-    @Override
-    public void setPeerState(ServerState newState){
 
-    }
 }

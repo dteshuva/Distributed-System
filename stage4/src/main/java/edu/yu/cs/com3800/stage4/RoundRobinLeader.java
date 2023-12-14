@@ -112,11 +112,6 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
                 this.requestHandlerPool.submit(() -> handleRequest(finalSocketFromGateway));
             } catch (SocketException e){
                 this.logger.info("Socket closed while waiting for connection");
-                try {
-                    Thread.sleep(3000);
-                } catch (InterruptedException ex) {
-                    ex.printStackTrace();
-                }
                 break;
             }
             catch (IOException e) {

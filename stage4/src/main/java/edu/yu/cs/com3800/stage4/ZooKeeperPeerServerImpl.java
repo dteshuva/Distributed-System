@@ -163,7 +163,8 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
 
     @Override
     public synchronized void setPeerState(ServerState newState) {
-        this.logger.info(id + ": switching from " + state + " to " + newState);
+        if(this.state == ServerState.OBSERVER)
+            return;
         this.state = newState;
     }
 
