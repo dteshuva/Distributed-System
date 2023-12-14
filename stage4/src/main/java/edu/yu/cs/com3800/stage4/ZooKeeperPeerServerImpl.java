@@ -48,7 +48,7 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
         this.peerIDtoAddress.remove(this.id);
         livePeers = Collections.synchronizedList(new ArrayList<InetSocketAddress>(peerIDtoAddress.values()));
         setName("ZooKeeperPeerServerImpl-udpPort-" + this.udpPort);
-        this.logger = initializeLogging(ZooKeeperPeerServerImpl.class.getCanonicalName() + "-on-server-with-udpPort-" + this.udpPort);
+        this.logger = initializeLogging(edu.yu.cs.com3800.stage4.ZooKeeperPeerServerImpl.class.getCanonicalName() + "-on-server-with-udpPort-" + this.udpPort);
     }
 
     @Override
@@ -96,7 +96,7 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
                         this.logger.fine("Starting Leader Election...");
                         Vote newLeader = new ZooKeeperLeaderElection(this, incomingMessages).lookForLeader();
                         setCurrentLeader(newLeader);
-                        this.logger.fine("Election completed.\nResult: " + newLeader.toString());
+                        this.logger.fine("Election completed.\nResult: " + newLeader);
                         break;
                     case FOLLOWING:
                         if (!followerStarted) {
@@ -205,32 +205,13 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
         deadPeers.add(failedPeer);
         livePeers.remove(failedPeer);
 
-   //     roundRobinLeader.reportFailedPeer(failedPeer);
+        //     roundRobinLeader.reportFailedPeer(failedPeer);
         if (peerID == currentLeader.getProposedLeaderID()) {
             peerEpoch++;
             currentLeader = null;
             setPeerState(ServerState.LOOKING);
         }
     }
-
-    public void reportFailedPeer(long peerID, Logger logger) {
-        this.logger.info("Peer " + peerID + " has been reported as failed");
-        InetSocketAddress failedPeer = peerIDtoAddress.get(peerID);
-        deadPeers.add(failedPeer);
-        livePeers.remove(failedPeer);
-
-     //   roundRobinLeader.reportFailedPeer(failedPeer);
-        if (currentLeader != null && peerID == currentLeader.getProposedLeaderID()) {
-            peerEpoch++;
-            currentLeader = null;
-            if (state != ServerState.OBSERVER) {
-                logger.info(id + ": switching from " + state + " to " + ServerState.LOOKING);
-                System.out.println(id + ": switching from " + state + " to " + ServerState.LOOKING);
-            }
-            setPeerState(ServerState.LOOKING);
-        }
-    }
-
     @Override
     public boolean isPeerDead(InetSocketAddress address) {
         return deadPeers.contains(address);

@@ -1,13 +1,16 @@
 package edu.yu.cs.com3800.stage4;
 
-import edu.yu.cs.com3800.*;
+import edu.yu.cs.com3800.JavaRunner;
+import edu.yu.cs.com3800.LoggingServer;
+import edu.yu.cs.com3800.Message;
+import edu.yu.cs.com3800.Util;
 
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -38,7 +41,7 @@ public class JavaRunnerFollower extends Thread implements LoggingServer {
     @Override
     public void run() {
         if (this.logger == null) {
-            this.logger = initializeLogging(JavaRunnerFollower.class.getCanonicalName() + "-on-server-with-udpPort-" + this.myPort);
+            this.logger = initializeLogging(edu.yu.cs.com3800.stage4.JavaRunnerFollower.class.getCanonicalName() + "-on-server-with-udpPort-" + this.myPort);
         }
 
         try {
