@@ -61,7 +61,7 @@ public class GatewayServer implements LoggingServer {
 
             if (!"text/x-java-source".equals(exchange.getRequestHeaders().getFirst("Content-Type"))) {
                 String response = "Content must be a java file";
-                sendResponse(exchange, HttpURLConnection.HTTP_BAD_REQUEST, "");
+                sendResponse(exchange, HttpURLConnection.HTTP_BAD_REQUEST, response);
                 return;
             }
 
@@ -141,13 +141,11 @@ public class GatewayServer implements LoggingServer {
 
 
     public void start() {
-   //     peerServer.start();
         httpServer.start();
     }
 
     public void shutdown() {
         httpServer.stop(0);
-    //    peerServer.shutdown();
     }
 
 }

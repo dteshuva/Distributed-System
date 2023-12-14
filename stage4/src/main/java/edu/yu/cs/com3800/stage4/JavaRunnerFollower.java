@@ -41,7 +41,7 @@ public class JavaRunnerFollower extends Thread implements LoggingServer {
     @Override
     public void run() {
         if (this.logger == null) {
-            this.logger = initializeLogging(edu.yu.cs.com3800.stage4.JavaRunnerFollower.class.getCanonicalName() + "-on-server-with-udpPort-" + this.myPort);
+            this.logger = initializeLogging(JavaRunnerFollower.class.getCanonicalName() + "-on-server-with-udpPort-" + this.myPort);
         }
 
         try {
