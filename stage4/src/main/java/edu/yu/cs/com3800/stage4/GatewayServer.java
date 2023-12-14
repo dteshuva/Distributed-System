@@ -80,7 +80,7 @@ public class GatewayServer implements LoggingServer {
 
             // Send the java code as a work message to the leader
             boolean isCompleted = false;
-            isCompletedLoop: // loop until we complete the request and have a response to send back to the client
+            // loop until we complete the request and have a response to send back to the client
             while (!isCompleted) {
                 Vote leader;
                 while ((leader = peerServer.getCurrentLeader()) == null) {
@@ -110,19 +110,15 @@ public class GatewayServer implements LoggingServer {
                     InputStream in = socket.getInputStream();
                     while (in.available() == 0) {
                         Thread.sleep(500);
-                        if (peerServer.isPeerDead(leader.getProposedLeaderID())) {
-                            logger.fine("leader died, trying again");
-                            continue isCompletedLoop;
-                        }
                     }
                     byte[] response = Util.readAllBytes(in);
                     responseMsg = new Message(response);
-                    logger.fine("Response received from leader:\n" + responseMsg.toString());
+                    logger.fine("Response received from leader:\n" + responseMsg);
                     socket.close();
                 } catch (ConnectException e) {
                     logger.fine("Unable to connect to leader at host " + msgToLeader.getReceiverHost() + " and port " + msgToLeader.getReceiverPort());
                     try {
-                        Thread.sleep(10000); // Leader probably just died, wait a bit for gossiper to notice
+                        Thread.sleep(3000);
                     } catch (InterruptedException e1) {
                         return;
                     }
@@ -132,11 +128,7 @@ public class GatewayServer implements LoggingServer {
                 } catch (InterruptedException e) {
                     break;
                 }
-                if (peerServer.isPeerDead(leader.getProposedLeaderID())) {
-                    logger.fine("leader died, trying again");
-                } else {
-                    isCompleted = true;
-                }
+                isCompleted = true;
             }
 
             if (responseMsg.getErrorOccurred()) {
