@@ -67,13 +67,16 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
             senderWorker = new UDPMessageSender(this.outgoingMessages, this.udpPort);
             // step 2: create thread that listens for udp messages sent to this server
             receiverWorker = new UDPMessageReceiver(this.incomingMessages, this.myAddress, this.udpPort, this);
+            // step 3: create gossiper thread
+
             // step 4: create follower thread
-            javaRunnerFollower = new JavaRunnerFollower(this.udpPort);
+            javaRunnerFollower = new JavaRunnerFollower(this.getUdpPort());
             // step 5: create leader thread
             List<InetSocketAddress> workers;
             synchronized (livePeers) {workers = new ArrayList<>(livePeers);}
             workers.remove(peerIDtoAddress.get(gatewayID));
-            roundRobinLeader = new RoundRobinLeader(this, workers);
+            this.peerIDtoAddress.remove(gatewayID);
+            roundRobinLeader = new RoundRobinLeader(this, this.peerIDtoAddress);
 
             // start helper threads
             senderWorker.start();
@@ -201,7 +204,7 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
         deadPeers.add(failedPeer);
         livePeers.remove(failedPeer);
 
-        roundRobinLeader.reportFailedPeer(failedPeer);
+   //     roundRobinLeader.reportFailedPeer(failedPeer);
         if (peerID == currentLeader.getProposedLeaderID()) {
             peerEpoch++;
             currentLeader = null;
@@ -215,7 +218,7 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
         deadPeers.add(failedPeer);
         livePeers.remove(failedPeer);
 
-        roundRobinLeader.reportFailedPeer(failedPeer);
+     //   roundRobinLeader.reportFailedPeer(failedPeer);
         if (currentLeader != null && peerID == currentLeader.getProposedLeaderID()) {
             peerEpoch++;
             currentLeader = null;

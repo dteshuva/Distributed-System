@@ -1,252 +1,191 @@
 package edu.yu.cs.com3800.stage4;
 
+import edu.yu.cs.com3800.LoggingServer;
+import edu.yu.cs.com3800.Message;
+import edu.yu.cs.com3800.Util;
+import edu.yu.cs.com3800.ZooKeeperPeerServer;
+
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.LinkedList;
+import java.util.Map;
+import java.util.Queue;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import edu.yu.cs.com3800.*;
-import edu.yu.cs.com3800.Message.MessageType;
-
 public class RoundRobinLeader extends Thread implements LoggingServer {
 
-    private static final int THREAD_POOL_SIZE = 16;
-
-    private final ZooKeeperPeerServer peerServer;
-    private ServerSocket tcpServer;
-    private final List<InetSocketAddress> workers;
-    private int nextWorkerIndex = 0;
+    private final int myPort;
     private Logger logger;
-    private final Map<Long, Message> completedWork = new HashMap<>();
-    private final ConcurrentMap<InetSocketAddress, Set<RequestCompleter>> assignedWork = new ConcurrentHashMap<>();
-    private ThreadPoolExecutor threadPool;
+    private final ZooKeeperPeerServer peerServer;
+    private final Queue<Long> roundRobin; // make sure not to add gateway server id
+    private ServerSocket tcpServer;
+    private final ExecutorService requestHandlerPool;
+    //  private Map<Long,InetSocketAddress> requestToClient; // move from here
 
-    public RoundRobinLeader(ZooKeeperPeerServer peerServer, List<InetSocketAddress> workers) throws IOException {
+    public RoundRobinLeader(ZooKeeperPeerServer peerServer, Map<Long, InetSocketAddress> peerIDtoAddress) {
+        //    this.request = 0;
+        //  this.requestToClient = new HashMap<>();
+        this.myPort = peerServer.getUdpPort();
         this.peerServer = peerServer;
-        this.workers = workers;
+        this.roundRobin = new LinkedList<>();
+        int threadPoolSize = Runtime.getRuntime().availableProcessors() * 2;
+        ThreadFactory daemonThreadFactory = new ThreadFactory() {
+            private final AtomicInteger threadNumber = new AtomicInteger(1);
+
+            public Thread newThread(Runnable r) {
+                Thread thread = new Thread(r);
+                thread.setDaemon(true);
+                thread.setName("DaemonThread-" + threadNumber.getAndIncrement());
+                return thread;
+            }
+        };
+
+        this.requestHandlerPool = Executors.newFixedThreadPool(threadPoolSize, daemonThreadFactory);
         this.setDaemon(true);
-        setName("RoundRobinLeader-udpPort-" + peerServer.getUdpPort());
+        setName("JavaRunnerFollower-port-" + this.myPort);
+        long myId = this.peerServer.getServerId();
+        // need to make sure gateway server isn't added - either make sure the map passed doesn't contain its id
+        // or make sure to pass its id so I know to delete  or ignore it
+        for(long id : peerIDtoAddress.keySet()){
+            if(id != myId)
+                this.roundRobin.add(id);
+        }
     }
 
     public void shutdown() {
-        if (tcpServer != null && !tcpServer.isClosed()) {
-            try { tcpServer.close(); } catch (IOException e) {}
+        if(this.tcpServer != null && !this.tcpServer.isClosed()) {
+            try {
+                this.tcpServer.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        if(!this.requestHandlerPool.isShutdown()){
+            this.requestHandlerPool.shutdownNow();
         }
         interrupt();
     }
 
     @Override
     public void run() {
-        this.logger = initializeLogging(RoundRobinLeader.class.getCanonicalName() + "-on-port-" + peerServer.getUdpPort());
-        this.logger.info("Begining role as leader");
-
+        if(this.logger == null){
+            this.logger = initializeLogging(RoundRobinLeader.class.getCanonicalName() + "-on-server-with-udpPort-" + this.myPort);
+        }
+        this.logger.info("Server with port " + this.myPort + " is beginning role as leader");
+        // ... existing initialization code ...
         try {
-            this.tcpServer = new ServerSocket(peerServer.getUdpPort() + 2);
+            if (this.tcpServer == null || this.tcpServer.isClosed()) {
+                this.tcpServer = new ServerSocket(this.myPort + 2);
+            }
         } catch (IOException e) {
-            this.logger.log(Level.SEVERE, "Error opening socket", e);
+            this.logger.log(Level.SEVERE, "Encountered a problem opening tcp server");
+            e.printStackTrace();
             return;
         }
-        threadPool = (ThreadPoolExecutor) Executors.newFixedThreadPool(THREAD_POOL_SIZE, r -> {
-            // Use a custom thread factory that creates daemon threads
-            Thread t = Executors.defaultThreadFactory().newThread(r);
-            t.setDaemon(true);
-            return t;
-        });
-        try { gatherCompletedWork(); } catch (IOException e) {} // Gather any completed work from other nodes
-        this.logger.fine("Finished gathering completed work from followers - going into leader mode");
-        while (!this.isInterrupted()) {
-            Socket socket = null;
-            Message msgFromGateway = null;
-            try {
-                // accept a tcp connection from the gateway
-                socket = tcpServer.accept();
-                this.logger.fine("Accepted TCP connection from " + socket.getInetAddress());
-                // read the message from the connection
-                byte[] received = Util.readAllBytesFromNetwork(socket.getInputStream());
-                msgFromGateway = new Message(received);
-                this.logger.fine("Received message from gateway: " + msgFromGateway);
-            } catch (SocketException e) {
-                this.logger.info("Socket closed while waiting for connection, exiting");
-                break;
-            } catch (IOException e) {
-                this.logger.log(Level.SEVERE, "I/O error occured while connecting to gateway", e);
-            }
-            if (socket == null || msgFromGateway == null) continue;
-            if (completedWork.containsKey(msgFromGateway.getRequestID())) { // If we have already completed this request
-                sendCompletedWork(msgFromGateway, socket);
-            } else {
-                this.logger.fine("Request ID " + msgFromGateway.getRequestID() + " not yet completed.");
-                assignWorkToPeer(msgFromGateway, socket);
-            }
-        }
-        threadPool.shutdownNow();
-        this.logger.log(Level.SEVERE, "Exiting RoundRobinLeader.run()");
-    }
 
-    /**
-     * Gathers any work that it, or other nodes, completed as workers after the
-     * previous leader died. Eventually the gateway will send a request with the
-     * same request ID to the leader, and the leader will simply reply with the
-     * already-completed work instead of having a follower redo the work from scratch.
-     */
-    private void gatherCompletedWork() throws IOException {
-        this.logger.fine("Gathering completed work from workers");
-        for (InetSocketAddress worker : workers) {
-            logger.fine("Requesting completed work from worker " + worker);
-            // ask worker for last work
-            Message request = new Message(MessageType.NEW_LEADER_GETTING_LAST_WORK,
-                    "No Message Content".getBytes(),
-                    peerServer.getAddress().getHostString(),
-                    peerServer.getUdpPort(),
-                    worker.getHostString(),
-                    worker.getPort());
-            Socket connectionToWorker = new Socket(worker.getHostString(), worker.getPort() + 2);
-            connectionToWorker.getOutputStream().write(request.getNetworkPayload());
-            // get response from worker
-            InputStream in = connectionToWorker.getInputStream();
-            while (in.available() == 0) {
-                try {
-                    Thread.sleep(500);
-                } catch (InterruptedException e) {
-                    connectionToWorker.close();
-                    return;
-                }
-            }
-            byte[] fromWorker = Util.readAllBytes(in);
-            connectionToWorker.close();
-            Message msgFromWorker = new Message(fromWorker);
-            if (msgFromWorker.getRequestID() > -1) {
-                logger.finer("Received completed work from worker: " + msgFromWorker);
-                this.completedWork.put(msgFromWorker.getRequestID(), msgFromWorker);
-            } else {
-                logger.finer("Worker " + worker + " has no completed work");
-            }
-        }
-    }
-
-    private void sendCompletedWork(Message msgFromGateway, Socket socket) {
-        this.logger.fine("Request ID " + msgFromGateway.getRequestID() + " already completed, sending result to gateway");
-        Message completedWork = this.completedWork.remove(msgFromGateway.getRequestID());
-        Message toSend = new Message(MessageType.COMPLETED_WORK,
-                completedWork.getMessageContents(),
-                peerServer.getAddress().getHostString(),
-                peerServer.getUdpPort(),
-                msgFromGateway.getSenderHost(),
-                msgFromGateway.getSenderPort(),
-                completedWork.getRequestID(),
-                completedWork.getErrorOccurred());
+        // Main loop
         try {
-            socket.getOutputStream().write(toSend.getNetworkPayload());
-        } catch (IOException e) {
-            this.logger.log(Level.SEVERE, "Error sending completed work ID " + msgFromGateway.getRequestID() + " to gateway", e);
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
         }
-    }
-
-    private synchronized void assignWorkToPeer(Message msgFromGateway, Socket socket) {
-        InetSocketAddress peer = workers.get(nextWorkerIndex);
-        nextWorkerIndex = (nextWorkerIndex + 1) % workers.size(); // Increment nextWorkerIndex (round robin)
-        assignedWork.putIfAbsent(peer, Collections.synchronizedSet(new HashSet<RequestCompleter>()));
-
-        RequestCompleter work = new RequestCompleter(msgFromGateway, socket, peer);
-        assignedWork.get(peer).add(work);
-        threadPool.execute(work);
-        this.logger.fine("Request ID " + msgFromGateway.getRequestID() + " Assigned to worker " + peer);
-    }
-
-    private synchronized void reassignWork(InetSocketAddress failedPeer) {
-        this.logger.finest("Reassigning work from failed peer " + failedPeer);
-        Set<RequestCompleter> work = assignedWork.remove(failedPeer);
-        if (work == null) return;
-        for (RequestCompleter w : work) {
-            w.cancel();
-            assignWorkToPeer(w.msgFromGateway, w.connectionToGateway);
-        }
-    }
-
-    public void reportFailedPeer(InetSocketAddress failedPeer) {
-        synchronized (this) {
-            this.workers.remove(failedPeer);
-            if (nextWorkerIndex >= this.workers.size()) nextWorkerIndex = 0;
-        }
-        if (isAlive()) {
-            this.logger.fine("Peer " + failedPeer + " reported as failed");
-            // reassign any client request work it had given the dead node to a different node
-            reassignWork(failedPeer);
-        }
-    }
-
-    private class RequestCompleter implements Runnable {
-
-        private final Socket connectionToGateway;
-        private final Message msgFromGateway;
-        private final InetSocketAddress worker;
-        private volatile boolean cancelled = false;
-
-        public RequestCompleter(Message message, Socket socket, InetSocketAddress worker) {
-            this.connectionToGateway = socket;
-            this.msgFromGateway = message;
-            this.worker = worker;
-        }
-
-        public void cancel() {
-            cancelled = true;
-        }
-
-        @Override
-        public void run() {
+        while (!this.isInterrupted()) {
             try {
-                // send message to the worker
-                Message toSend = new Message(MessageType.WORK,
-                        msgFromGateway.getMessageContents(),
-                        peerServer.getAddress().getHostString(),
-                        peerServer.getUdpPort(),
-                        worker.getHostString(),
-                        worker.getPort(),
-                        msgFromGateway.getRequestID());
-                Socket connectionToWorker = new Socket(worker.getHostString(), worker.getPort() + 2);
-                connectionToWorker.getOutputStream().write(toSend.getNetworkPayload());
-
-                // Receive response from worker
-                InputStream in = connectionToWorker.getInputStream();
-                while (in.available() == 0) {
-                    try {
-                        Thread.sleep(500);
-                    } catch (InterruptedException e) {
-                        connectionToWorker.close();
-                        return;
-                    }
-                    if (cancelled) {
-                        connectionToWorker.close();
-                        return;
-                    }
+                // Accept a TCP connection from the gateway
+                // Has danger to be bottleneck
+                Socket socketFromGateway = null;
+                if(tcpServer != null && !tcpServer.isClosed()){
+                    socketFromGateway = tcpServer.accept();
                 }
-                byte[] fromWorker = Util.readAllBytes(in);
-                connectionToWorker.close();
-                Message msgFromWorker = new Message(fromWorker);
-                logger.finer("Received message from worker: " + msgFromWorker);
 
-                // Send response to gateway
-                toSend = new Message(MessageType.COMPLETED_WORK,
-                        msgFromWorker.getMessageContents(),
-                        peerServer.getAddress().getHostString(),
-                        peerServer.getUdpPort(),
-                        msgFromGateway.getSenderHost(),
-                        msgFromGateway.getSenderPort(),
-                        msgFromWorker.getRequestID(),
-                        msgFromWorker.getErrorOccurred());
-                connectionToGateway.getOutputStream().write(toSend.getNetworkPayload());
-            } catch (IOException e) {}
-            assignedWork.get(worker).remove(this);
+                this.logger.fine("Accepted TCP connection from " + socketFromGateway.getInetAddress());
+
+                // Submit the request handling to the thread pool
+                Socket finalSocketFromGateway = socketFromGateway;
+
+                this.requestHandlerPool.submit(() -> handleRequest(finalSocketFromGateway));
+            } catch (SocketException e){
+                this.logger.info("Socket closed while waiting for connection");
+                try {
+                    Thread.sleep(3000);
+                } catch (InterruptedException ex) {
+                    ex.printStackTrace();
+                }
+                break;
+            }
+            catch (IOException e) {
+                this.logger.log(Level.SEVERE, "I/O error occurred", e);
+                if (Thread.currentThread().isInterrupted()) {
+                    this.logger.log(Level.SEVERE, "Thread was interrupted in the middle");
+                    break; // Exit loop if interrupted
+                }
+            }
+
         }
+
+        // Clean up
+        try {
+            this.requestHandlerPool.shutdown();
+            if (!this.requestHandlerPool.awaitTermination(60, TimeUnit.SECONDS)) {
+                this.requestHandlerPool.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            this.requestHandlerPool.shutdownNow();
+        }
+        this.logger.info("Exiting RoundRobinLeader.run()");
+    }
+
+    private void handleRequest(Socket socketFromGateway) {
+        try {
+            // Read the message from the gateway
+            byte[] received = Util.readAllBytesFromNetwork(socketFromGateway.getInputStream());
+            Message msgFromGateway = new Message(received);
+            this.logger.fine("Received message from gateway: " + msgFromGateway);
+
+            // Assign work to a worker using a TCP connection
+            // TCP port = UDP port + 2
+            InetSocketAddress workerAddress = getNextWorkerAddress();
+            this.logger.info("Attempting to assign work to node with port " + (workerAddress.getPort()));
+            // Thread.sleep(1000);
+            try (Socket socketToWorker = new Socket(workerAddress.getHostString(), workerAddress.getPort() + 2)) {
+                // Send the task to the worker
+                socketToWorker.getOutputStream().write(msgFromGateway.getNetworkPayload());
+
+                // Wait for the response from the worker
+                byte[] response = Util.readAllBytesFromNetwork(socketToWorker.getInputStream());
+                Message msgFromWorker = new Message(response);
+                this.logger.fine("Received response from worker: " + msgFromWorker);
+
+                // Send the worker's response back to the gateway
+                socketFromGateway.getOutputStream().write(msgFromWorker.getNetworkPayload());
+            } catch (IOException e) {
+                this.logger.log(Level.SEVERE, "Error communicating with worker", e);
+                // Handle reassignment or retry logic here
+            }
+        } catch (IOException e) {
+            this.logger.log(Level.SEVERE, "Error reading from gateway", e);
+        }  finally {
+            try {
+                socketFromGateway.close();
+            } catch (IOException e) {
+                this.logger.log(Level.SEVERE, "Error closing socket", e);
+            }
+        }
+    }
+
+
+    private synchronized InetSocketAddress getNextWorkerAddress() {
+        // makae sure gatewayserver isnt here
+        long id = this.roundRobin.poll();
+        InetSocketAddress nextWorker = this.peerServer.getPeerByID(id);
+        this.roundRobin.add(id);
+        return nextWorker;
     }
 
 }
