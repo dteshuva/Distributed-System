@@ -25,7 +25,7 @@ public class Gossiper extends Thread implements LoggingServer {
     public static final int FAIL = GOSSIP * 10;
     public static final int CLEANUP = FAIL * 2;
 
-    private final ZooKeeperPeerServer peerServer;
+    private final ZooKeeperPeerServerImpl peerServer;
     private final LinkedBlockingQueue<Message> incomingMessages;
     private final Long id;
     private final Logger logger;
@@ -94,14 +94,21 @@ public class Gossiper extends Thread implements LoggingServer {
 
     @Override
     public void run() {
-        this.logger.fine("Starting Gossiper thread");
+        Map<Long,InetSocketAddress> map = this.peerServer.getMap();
+        for(Long id : map.keySet()){
+            heartbeatTable.put(id, new HeartbeatData(heartbeatCounter, System.currentTimeMillis()));
+        }
         while (!this.isInterrupted()) {
             long currentTime = System.currentTimeMillis();
             // increment our own heartbeat counter
             heartbeatTable.put(id, new HeartbeatData(heartbeatCounter++, currentTime));
 
             // Step 1) merge in to its records all new heartbeats / gossip info that the UDP receiver has
-            updateTable(currentTime);
+            try {
+                updateTable(currentTime);
+            } catch (IOException | ClassNotFoundException e) {
+                this.logger.log(Level.SEVERE, "Encountered a problem updating the heartbeat table");
+            }
 
             // Step 2) check for failures, using the records it has
             checkForFailures(currentTime);
@@ -110,7 +117,11 @@ public class Gossiper extends Thread implements LoggingServer {
             cleanUpFailures(currentTime);
 
             // Step 4) gossip to a random peer
-            sendGossip();
+            try {
+                sendGossip();
+            } catch (IOException e) {
+                this.logger.log(Level.SEVERE, "Failed to gossip");
+            }
 
             // Step 5) sleep for the heartbeat/gossip interval
             try {
@@ -123,7 +134,7 @@ public class Gossiper extends Thread implements LoggingServer {
         this.logger.info("Exiting Gossiper.run()");
     }
 
-    private void updateTable(long currentTime) {
+    private void updateTable(long currentTime) throws IOException, ClassNotFoundException {
         Queue<Message> otherMessages = new LinkedList<>();
         Message m = null;
         while ((m = incomingMessages.poll()) != null) { // For each received gossip message in the queue
@@ -131,8 +142,11 @@ public class Gossiper extends Thread implements LoggingServer {
                 // deserialize the gossip message
                 HashMap<Long,HeartbeatData> receivedTable = deserializeHeartbeatTable(m.getMessageContents());
                 String sender = m.getSenderHost() + ":" + m.getSenderPort();
-                logger.finest("Received heartbeat table from " + sender);
-                saveToVerboseLog(sender, receivedTable, currentTime);
+                logger.fine("Received heartbeat table from " + sender);
+
+                String time = new SimpleDateFormat("MM/dd/yyyy, HH:mm:ss.S").format(new Date(currentTime));
+                this.verboseLogger.fine("Message from " + sender + " received at " + time + ":" +'\n'+receivedTable.toString());
+
                 // merge the received table into our own
                 for (Map.Entry<Long, HeartbeatData> newTableEntry : receivedTable.entrySet()) {
                     long receivedId = newTableEntry.getKey();
@@ -141,7 +155,7 @@ public class Gossiper extends Thread implements LoggingServer {
                     // if it is in the table - update the heartbeat if it's newer
                     if (!peerServer.isPeerDead(receivedId) && (!heartbeatTable.containsKey(receivedId) || receivedHeartbeat > heartbeatTable.get(receivedId).heartbeatCounter())) {
                         heartbeatTable.put(receivedId, new HeartbeatData(receivedHeartbeat, currentTime)); // Add it
-                        this.summaryLogger.info(id + ": updated " + receivedId + "'s heartbeat sequence to " + receivedHeartbeat + " based on message from " + sender + " at node time " + currentTime);
+                        this.summaryLogger.fine(id + ": updated " + receivedId + "'s heartbeat sequence to " + receivedHeartbeat + " based on message from " + sender + " at node time " + currentTime);
                     }
                 }
             } else {
@@ -158,7 +172,7 @@ public class Gossiper extends Thread implements LoggingServer {
                 continue;
             }
             if (currentTime - entry.getValue().time() > FAIL) {
-                this.summaryLogger.info(id + ": no heartbeat from server " + entry.getKey() + " - SERVER FAILED");
+                this.summaryLogger.fine(id + ": no heartbeat from server " + entry.getKey() + " - SERVER FAILED");
                 System.out.println(id + ": no heartbeat from server " + entry.getKey() + " - SERVER FAILED");
                 peerServer.reportFailedPeer(entry.getKey());
             }
@@ -169,46 +183,48 @@ public class Gossiper extends Thread implements LoggingServer {
         heartbeatTable.entrySet().removeIf(entry -> currentTime - entry.getValue().time() > CLEANUP);
     }
 
-    private void sendGossip() {
+    private void sendGossip() throws IOException {
         InetSocketAddress randomPeer = peerServer.getRandomPeer();
+        if(randomPeer == null)
+            return;
         peerServer.sendMessage(MessageType.GOSSIP, serializeHeartbeatTable(), randomPeer);
         this.logger.fine("Sent gossip message to " + randomPeer);
     }
 
     private record HeartbeatData(long heartbeatCounter, long time) implements Serializable {}
 
-    private byte[] serializeHeartbeatTable() {
-        // remove dead peers from the table before sending
-        var tableToSend = new HashMap<>(heartbeatTable);
+    private byte[] serializeHeartbeatTable() throws IOException {
+        HashMap<Long, HeartbeatData> tableToSend = new HashMap<>(heartbeatTable);
+        // if a peer is dead there's point to send it so it will be removed
+        // from the table
         for (long id : heartbeatTable.keySet()) {
             if (peerServer.isPeerDead(id)) {
                 tableToSend.remove(id);
             }
         }
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try {
-            new ObjectOutputStream(baos).writeObject(tableToSend);
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error serializing heartbeat table", e);
-        }
-        return baos.toByteArray();
+
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream);
+        objectOutputStream.writeObject(tableToSend);
+        objectOutputStream.close();
+
+        return byteArrayOutputStream.toByteArray();
     }
 
     @SuppressWarnings("unchecked")
-    private HashMap<Long, HeartbeatData> deserializeHeartbeatTable(byte[] data) {
-        ByteArrayInputStream bais = new ByteArrayInputStream(data);
-        try {
-            return (HashMap<Long, HeartbeatData>) new java.io.ObjectInputStream(bais).readObject();
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error deserializing heartbeat table", e);
-        }
-        return null;
+    private HashMap<Long, HeartbeatData> deserializeHeartbeatTable(byte[] data) throws IOException, ClassNotFoundException {
+
+        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(data);
+        ObjectInputStream objectInputStream = new ObjectInputStream(byteArrayInputStream);
+        Map<?, ?> map = (Map<?, ?>) objectInputStream.readObject();
+        objectInputStream.close();
+
+        return (HashMap<Long, HeartbeatData>) map;
     }
 
-    private void saveToVerboseLog(String sender, HashMap<Long, HeartbeatData> receivedTable, long currentTime) {
-        String time = new SimpleDateFormat("MM/dd/yyyy, HH:mm:ss.S").format(new Date(currentTime));
-        this.verboseLogger.info("Message from " + sender + " received at " + time + ":");
-        this.verboseLogger.info(receivedTable.toString());
+    public void switchState(){
+        this.summaryLogger.fine(this.peerServer.getServerId()+":switching from FOLLOWING to LOOKING");
+        System.out.println(this.peerServer.getServerId()+": switching from FOLLOWING to LOOKING");
     }
 
 }

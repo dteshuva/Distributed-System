@@ -30,6 +30,7 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
     private UDPMessageReceiver receiverWorker;
     private JavaRunnerFollower javaRunnerFollower = null;
     private RoundRobinLeader roundRobinLeader = null;
+    private Gossiper gossiper;
 
     private Logger logger;
 
@@ -45,9 +46,10 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
         this.peerEpoch = peerEpoch;
         this.peerIDtoAddress = peerIDtoAddress;
         this.peerIDtoAddress.remove(this.id);
-        this.peerIDtoAddress.remove(gatewayID);
+        InetSocketAddress gatewayAddress = this.peerIDtoAddress.remove(gatewayID);
         // In this stage all nodes are alive basically
         livePeers = Collections.synchronizedList(new ArrayList<InetSocketAddress>(peerIDtoAddress.values()));
+        livePeers.add(gatewayAddress);
         setName("ZooKeeperPeerServerImpl-udpPort-" + this.myPort);
         this.logger = initializeLogging(ZooKeeperPeerServerImpl.class.getCanonicalName() + "-on-server-with-udpPort-" + this.myPort);
     }
@@ -59,6 +61,7 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
         this.receiverWorker.shutdown();
         this.javaRunnerFollower.shutdown();
         this.roundRobinLeader.shutdown();
+        this.gossiper.shutdown();
     }
 
     @Override
@@ -139,12 +142,17 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
         InetSocketAddress failedPeer = peerIDtoAddress.get(peerID);
         deadPeers.add(failedPeer);
         livePeers.remove(failedPeer);
+        this.roundRobinLeader.deleteDeadWorker(peerID);
 
-        if (peerID == currentLeader.getProposedLeaderID()) {
+        if (currentLeader != null && peerID == currentLeader.getProposedLeaderID()) {
             peerEpoch++;
             currentLeader = null;
-            setPeerState(ServerState.LOOKING);
+            if(this.getPeerState() == ServerState.FOLLOWING){
+                setPeerState(ServerState.LOOKING);
+                gossiper.switchState();
+            }
         }
+
     }
     // More relevant for stage5
     @Override
@@ -157,7 +165,26 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
         return deadPeers.contains(peerIDtoAddress.get(peerID));
     }
 
+    // Warning - method should only be invoked by RoundRobinLeader to prevent
+    // shutting down javaRunnerFollower for no reason
+    public Message getLastWork(){
+        return this.javaRunnerFollower.lastWork();
+    }
+
     public Map<Long, InetSocketAddress> getMap(){ return this.peerIDtoAddress; }
+
+    public InetSocketAddress getRandomPeer() {
+        synchronized(livePeers) {
+            if (this.livePeers.isEmpty()) {
+                return null;
+            }
+            Random random = new Random();
+            int index = random.nextInt(this.livePeers.size());
+            return this.livePeers.get(index);
+        }
+    }
+
+
 
     @Override
     public void run() {
@@ -169,12 +196,14 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
 
 
             // step 3: create follower thread
-            javaRunnerFollower = new JavaRunnerFollower(this.getUdpPort());
+            this.javaRunnerFollower = new JavaRunnerFollower(this, this.getUdpPort());
             // step 4: create leader thread
-            roundRobinLeader = new RoundRobinLeader(this, this.peerIDtoAddress);
+            this.roundRobinLeader = new RoundRobinLeader(this, this.peerIDtoAddress);
+            this.gossiper = new Gossiper(this, incomingMessages);
 
             senderWorker.start();
             receiverWorker.start();
+            this.gossiper.start();
         } catch (IOException e) {
             this.logger.log(Level.SEVERE, "Failed to start worker threads", e);
             return;
@@ -189,6 +218,7 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
                         // start leader election, set leader to the election winner
                         this.logger.fine("Server "+this.id+" starting leader election");
                         Vote newLeader = new ZooKeeperLeaderElection(this, incomingMessages).lookForLeader();
+                        this.logger.info("New leader is server "+newLeader.getProposedLeaderID());
                         setCurrentLeader(newLeader);
                         break;
                     case FOLLOWING:
@@ -200,6 +230,9 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
                         break;
                     case LEADING:
                         if (!leaderStarted) {
+                            if(followerStarted){
+                                javaRunnerFollower.shutdown();
+                            }
                             this.logger.fine("Starting role as Leader...");
                             roundRobinLeader.start();
                             leaderStarted = true;
@@ -209,6 +242,7 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
                         if (currentLeader == null) {
                             this.logger.fine("Server "+this.id+" starting leader election as an observer");
                             this.currentLeader = new ZooKeeperLeaderElection(this, incomingMessages).lookForLeader();
+                            this.logger.info("Observer found out that new leader is server "+this.currentLeader.getProposedLeaderID());
                         }
                 }
             }

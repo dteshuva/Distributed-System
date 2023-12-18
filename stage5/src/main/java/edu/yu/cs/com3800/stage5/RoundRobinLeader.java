@@ -10,9 +10,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
-import java.util.LinkedList;
-import java.util.Map;
-import java.util.Queue;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
@@ -22,18 +20,25 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
 
     private final int myPort;
     private Logger logger;
-    private final ZooKeeperPeerServer peerServer;
+    private final ZooKeeperPeerServerImpl peerServer;
     private final Queue<Long> roundRobin; // make sure not to add gateway server id
     private ServerSocket tcpServer;
     private final ExecutorService requestHandlerPool;
     //  private Map<Long,InetSocketAddress> requestToClient; // move from here
+    private Map<Long, Message> completedWork;
 
-    public RoundRobinLeader(ZooKeeperPeerServer peerServer, Map<Long, InetSocketAddress> peerIDtoAddress) {
+    private Map<Long, List<Message>> sentWork;
+    private Map<Long,Socket> requestToConnection;
+
+    public RoundRobinLeader(ZooKeeperPeerServerImpl peerServer, Map<Long, InetSocketAddress> peerIDtoAddress) {
         //    this.request = 0;
         //  this.requestToClient = new HashMap<>();
         this.myPort = peerServer.getUdpPort();
         this.peerServer = peerServer;
         this.roundRobin = new LinkedList<>();
+        this.completedWork = new HashMap<>();
+        this.sentWork = new HashMap<>();
+        this.requestToConnection = new HashMap<>();
         int threadPoolSize = Runtime.getRuntime().availableProcessors() * 2;
         ThreadFactory daemonThreadFactory = new ThreadFactory() {
             private final AtomicInteger threadNumber = new AtomicInteger(1);
@@ -53,8 +58,10 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
         // need to make sure gateway server isn't added - either make sure the map passed doesn't contain its id
         // or make sure to pass its id so I know to delete  or ignore it
         for(long id : peerIDtoAddress.keySet()){
-            if(id != myId)
+            if(id != myId){
                 this.roundRobin.add(id);
+                this.sentWork.put(id,new ArrayList<>());
+            }
         }
     }
 
@@ -63,7 +70,7 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
             try {
                 this.tcpServer.close();
             } catch (IOException e) {
-                e.printStackTrace();
+                this.logger.log(Level.SEVERE,"Failed closing tcp server");
             }
         }
         if(!this.requestHandlerPool.isShutdown()){
@@ -80,15 +87,33 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
         this.logger.info("Server with port " + this.myPort + " is beginning role as leader");
         // ... existing initialization code ...
         try {
-            if (this.tcpServer == null || this.tcpServer.isClosed()) {
-                this.tcpServer = new ServerSocket(this.myPort + 2);
+            // Check if the tcpServer is not null and is open
+            if (this.tcpServer != null && !this.tcpServer.isClosed()) {
+                // Close the existing tcpServer
+                this.tcpServer.close();
             }
+            // Create a new ServerSocket
+            this.tcpServer = new ServerSocket(this.myPort + 2);
         } catch (IOException e) {
-            this.logger.log(Level.SEVERE, "Encountered a problem opening tcp server");
-            e.printStackTrace();
+            this.logger.log(Level.SEVERE, "Encountered a problem opening tcp server", e);
             return;
         }
 
+        Message completedMessage = peerServer.getLastWork();
+        if(completedMessage != null){
+            completedWork.put(completedMessage.getRequestID(), completedMessage);
+        }
+
+        // Send requests to all workers to gather work completed for
+        // previous leader
+        try {
+            for(int i = 1; i<= roundRobin.size(); i++){
+                this.requestHandlerPool.submit(this::requestForDoneWork);
+                Thread.sleep(500);
+            }
+        } catch (InterruptedException e) {
+            this.logger.log(Level.SEVERE,"There has been a problem to gather completed work from all other nodes");
+        }
         // Main loop
         try {
             Thread.sleep(1000);
@@ -143,6 +168,11 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
             Message msgFromGateway = new Message(received);
             this.logger.fine("Received message from gateway: " + msgFromGateway);
 
+            if(this.completedWork.containsKey(msgFromGateway.getRequestID())){
+                Message msgFromWorker = this.completedWork.remove(msgFromGateway.getRequestID());
+                socketFromGateway.getOutputStream().write(msgFromWorker.getNetworkPayload());
+                this.logger.fine("Work has been done by a worker, there is no need to reassign this work");
+            }
             // Assign work to a worker using a TCP connection
             // TCP port = UDP port + 2
             InetSocketAddress workerAddress = getNextWorkerAddress();
@@ -151,6 +181,7 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
             try (Socket socketToWorker = new Socket(workerAddress.getHostString(), workerAddress.getPort() + 2)) {
                 // Send the task to the worker
                 socketToWorker.getOutputStream().write(msgFromGateway.getNetworkPayload());
+                this.requestToConnection.put(msgFromGateway.getRequestID(), socketFromGateway);
 
                 // Wait for the response from the worker
                 byte[] response = Util.readAllBytesFromNetwork(socketToWorker.getInputStream());
@@ -163,14 +194,9 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
                 this.logger.log(Level.SEVERE, "Error communicating with worker", e);
                 // Handle reassignment or retry logic here
             }
+                this.requestToConnection.remove(msgFromGateway.getRequestID());
         } catch (IOException e) {
             this.logger.log(Level.SEVERE, "Error reading from gateway", e);
-        }  finally {
-            try {
-                socketFromGateway.close();
-            } catch (IOException e) {
-                this.logger.log(Level.SEVERE, "Error closing socket", e);
-            }
         }
     }
 
@@ -181,6 +207,61 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
         InetSocketAddress nextWorker = this.peerServer.getPeerByID(id);
         this.roundRobin.add(id);
         return nextWorker;
+    }
+
+    public void requestForDoneWork(){
+        InetSocketAddress workerAddress = getNextWorkerAddress();
+        this.logger.info("Attempting to assign work to node with port " + (workerAddress.getPort()));
+        // Thread.sleep(1000);
+        try (Socket socketToWorker = new Socket(workerAddress.getHostString(), workerAddress.getPort() + 2)) {
+            // Send the task to the worker
+            Message getWork = new Message(Message.MessageType.NEW_LEADER_GETTING_LAST_WORK, "".getBytes(),this.peerServer.getAddress().getHostString(),this.myPort, workerAddress.getHostString(), workerAddress.getPort(), -1);
+            socketToWorker.getOutputStream().write(getWork.getNetworkPayload());
+
+            // Wait for the response from the worker
+            byte[] response = Util.readAllBytesFromNetwork(socketToWorker.getInputStream());
+            Message msgFromWorker = new Message(response);
+            this.logger.fine("Received response from worker: " + msgFromWorker);
+
+            // Put the completed work on the queue - if received one
+            if(msgFromWorker.getRequestID() != -1)
+                this.completedWork.put(msgFromWorker.getRequestID(), msgFromWorker);
+
+        } catch (IOException e) {
+            this.logger.log(Level.SEVERE, "Error communicating with worker", e);
+            // Handle reassignment or retry logic here
+        }
+    }
+
+    public void deleteDeadWorker(Long id){
+        List<Message> workToDo = this.sentWork.remove(id);
+        this.roundRobin.remove(id);
+        for(Message w : workToDo){
+            this.requestHandlerPool.submit(()->handleReassign(w));
+        }
+
+    }
+
+    public void handleReassign(Message work){
+        InetSocketAddress workerAddress = getNextWorkerAddress();
+        this.logger.info("Attempting to reassign work to node with port " + (workerAddress.getPort()));
+        // Thread.sleep(1000);
+        try (Socket socketToWorker = new Socket(workerAddress.getHostString(), workerAddress.getPort() + 2)) {
+            // Send the task to the worker
+            socketToWorker.getOutputStream().write(work.getNetworkPayload());
+
+            // Wait for the response from the worker
+            byte[] response = Util.readAllBytesFromNetwork(socketToWorker.getInputStream());
+            Message msgFromWorker = new Message(response);
+            this.logger.fine("Received response from worker: " + msgFromWorker);
+
+            // Send the worker's response back to the gateway
+            Socket socket = this.requestToConnection.remove(msgFromWorker.getRequestID());
+            socket.getOutputStream().write(msgFromWorker.getNetworkPayload());
+        } catch (IOException e) {
+            this.logger.log(Level.SEVERE, "Error communicating with worker", e);
+            // Handle reassignment or retry logic here
+        }
     }
 
 }

@@ -65,7 +65,6 @@ public class GatewayServer implements LoggingServer {
 
             InputStream requestBody = exchange.getRequestBody();
             byte[] sourceCodeBytes = requestBody.readAllBytes();
-            long requestId = request.getAndIncrement();
             Message msgFromLeader = null;
 
             boolean isCompleted = false;
@@ -92,6 +91,10 @@ public class GatewayServer implements LoggingServer {
                     InputStream in = socketToLeader.getInputStream();
                     while (in.available() == 0) {
                         Thread.sleep(500);
+                        if(observerPeer.isPeerDead(observerPeer.getCurrentLeader().getProposedLeaderID())){
+                            logger.info("Leader has been reported as failed. Trying again");
+                            continue;
+                        }
                     }
                     byte[] response = Util.readAllBytes(in);
                     msgFromLeader = new Message(response);
@@ -110,7 +113,8 @@ public class GatewayServer implements LoggingServer {
                 } catch (InterruptedException e) {
                     break;
                 }
-                 isCompleted = true;
+                 if(!observerPeer.isPeerDead(observerPeer.getCurrentLeader().getProposedLeaderID()))
+                     isCompleted = true;
             }
 
             byte[] resp = msgFromLeader.getMessageContents();
