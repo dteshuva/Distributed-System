@@ -241,7 +241,8 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
                     case OBSERVER:
                         if (currentLeader == null) {
                             this.logger.fine("Server "+this.id+" starting leader election as an observer");
-                            this.currentLeader = new ZooKeeperLeaderElection(this, incomingMessages).lookForLeader();
+                            Vote newLeader2 = new ZooKeeperLeaderElection(this, incomingMessages).lookForLeader();
+                            setCurrentLeader(newLeader2);
                             this.logger.info("Observer found out that new leader is server "+this.currentLeader.getProposedLeaderID());
                         }
                 }

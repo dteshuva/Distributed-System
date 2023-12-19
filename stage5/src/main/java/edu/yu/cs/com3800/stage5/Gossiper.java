@@ -32,7 +32,7 @@ public class Gossiper extends Thread implements LoggingServer {
     private final Logger summaryLogger;
     private final Logger verboseLogger;
     private long heartbeatCounter = 0;
-    private Map<Long, HeartbeatData> heartbeatTable = new HashMap<>();
+    private Map<Long, HeartBeat> heartbeatTable = new HashMap<>();
     private final HttpServer httpServer;
 
     public Gossiper(ZooKeeperPeerServerImpl peerServer, LinkedBlockingQueue<Message> incomingMessages) throws IOException {
@@ -44,13 +44,10 @@ public class Gossiper extends Thread implements LoggingServer {
         setName("Gossiper-udpPort-" + port);
         this.logger = initializeLogging(Gossiper.class.getCanonicalName() + "-on-server-with-udpPort-" + port);
 
-        // Set up summary logger
         this.summaryLogger = initializeLogging("Summary-logger-" + Gossiper.class.getCanonicalName()  + "-on-server-with-udpPort-" + port, false);
 
-        // Set up verbose logger
         this.verboseLogger = initializeLogging("Verbose-logger-" + Gossiper.class.getCanonicalName()  + "-on-server-with-udpPort-" + port, false);
 
-        // Set up http service
         httpServer = HttpServer.create(new InetSocketAddress(port + 4), 0);
         httpServer.createContext("/summary", new getLogHandler("./logs/Summary-logger-Gossip-on-server-with-udpPort-" + port + ".log"));
         httpServer.createContext("/verbose", new getLogHandler("./logs/Verbose-logger-Gossip-on-server-with-udpPort-" + port + ".log"));
@@ -96,34 +93,28 @@ public class Gossiper extends Thread implements LoggingServer {
     public void run() {
         Map<Long,InetSocketAddress> map = this.peerServer.getMap();
         for(Long id : map.keySet()){
-            heartbeatTable.put(id, new HeartbeatData(heartbeatCounter, System.currentTimeMillis()));
+            heartbeatTable.put(id, new HeartBeat(heartbeatCounter, System.currentTimeMillis()));
         }
         while (!this.isInterrupted()) {
             long currentTime = System.currentTimeMillis();
-            // increment our own heartbeat counter
-            heartbeatTable.put(id, new HeartbeatData(heartbeatCounter++, currentTime));
+            heartbeatTable.put(id, new HeartBeat(heartbeatCounter++, currentTime));
 
-            // Step 1) merge in to its records all new heartbeats / gossip info that the UDP receiver has
             try {
                 updateTable(currentTime);
             } catch (IOException | ClassNotFoundException e) {
                 this.logger.log(Level.SEVERE, "Encountered a problem updating the heartbeat table");
             }
 
-            // Step 2) check for failures, using the records it has
             checkForFailures(currentTime);
 
-            // Step 3) clean up old failures that have reached cleanup time
             cleanUpFailures(currentTime);
 
-            // Step 4) gossip to a random peer
             try {
                 sendGossip();
             } catch (IOException e) {
                 this.logger.log(Level.SEVERE, "Failed to gossip");
             }
 
-            // Step 5) sleep for the heartbeat/gossip interval
             try {
                 Thread.sleep(GOSSIP);
             } catch (InterruptedException e) {
@@ -137,29 +128,25 @@ public class Gossiper extends Thread implements LoggingServer {
     private void updateTable(long currentTime) throws IOException, ClassNotFoundException {
         Queue<Message> otherMessages = new LinkedList<>();
         Message m = null;
-        while ((m = incomingMessages.poll()) != null) { // For each received gossip message in the queue
+        while ((m = incomingMessages.poll()) != null) {
             if (m.getMessageType() == MessageType.GOSSIP) {
-                // deserialize the gossip message
-                HashMap<Long,HeartbeatData> receivedTable = deserializeHeartbeatTable(m.getMessageContents());
+                HashMap<Long, HeartBeat> receivedTable = deserializeHeartbeatTable(m.getMessageContents());
                 String sender = m.getSenderHost() + ":" + m.getSenderPort();
                 logger.fine("Received heartbeat table from " + sender);
 
                 String time = new SimpleDateFormat("MM/dd/yyyy, HH:mm:ss.S").format(new Date(currentTime));
                 this.verboseLogger.fine("Message from " + sender + " received at " + time + ":" +'\n'+receivedTable.toString());
 
-                // merge the received table into our own
-                for (Map.Entry<Long, HeartbeatData> newTableEntry : receivedTable.entrySet()) {
+                for (Map.Entry<Long, HeartBeat> newTableEntry : receivedTable.entrySet()) {
                     long receivedId = newTableEntry.getKey();
                     long receivedHeartbeat = newTableEntry.getValue().heartbeatCounter();
-                    // If the peer is alive and not in the table - update it
-                    // if it is in the table - update the heartbeat if it's newer
+
                     if (!peerServer.isPeerDead(receivedId) && (!heartbeatTable.containsKey(receivedId) || receivedHeartbeat > heartbeatTable.get(receivedId).heartbeatCounter())) {
-                        heartbeatTable.put(receivedId, new HeartbeatData(receivedHeartbeat, currentTime)); // Add it
+                        heartbeatTable.put(receivedId, new HeartBeat(receivedHeartbeat, currentTime)); // Add it
                         this.summaryLogger.fine(id + ": updated " + receivedId + "'s heartbeat sequence to " + receivedHeartbeat + " based on message from " + sender + " at node time " + currentTime);
                     }
                 }
             } else {
-                // Im not sure if im going to need it
                 otherMessages.add(m);
             }
         }
@@ -167,7 +154,7 @@ public class Gossiper extends Thread implements LoggingServer {
     }
 
     private void checkForFailures(long currentTime) {
-        for (Map.Entry<Long, HeartbeatData> entry : heartbeatTable.entrySet()) {
+        for (Map.Entry<Long, HeartBeat> entry : heartbeatTable.entrySet()) {
             if (peerServer.isPeerDead(entry.getKey())) {
                 continue;
             }
@@ -178,7 +165,7 @@ public class Gossiper extends Thread implements LoggingServer {
             }
         }
     }
-// not sure if good
+
     private void cleanUpFailures(long currentTime) {
         heartbeatTable.entrySet().removeIf(entry -> currentTime - entry.getValue().time() > CLEANUP);
     }
@@ -191,10 +178,10 @@ public class Gossiper extends Thread implements LoggingServer {
         this.logger.fine("Sent gossip message to " + randomPeer);
     }
 
-    private record HeartbeatData(long heartbeatCounter, long time) implements Serializable {}
+
 
     private byte[] serializeHeartbeatTable() throws IOException {
-        HashMap<Long, HeartbeatData> tableToSend = new HashMap<>(heartbeatTable);
+        HashMap<Long, HeartBeat> tableToSend = new HashMap<>(heartbeatTable);
         // if a peer is dead there's point to send it so it will be removed
         // from the table
         for (long id : heartbeatTable.keySet()) {
@@ -212,14 +199,14 @@ public class Gossiper extends Thread implements LoggingServer {
     }
 
     @SuppressWarnings("unchecked")
-    private HashMap<Long, HeartbeatData> deserializeHeartbeatTable(byte[] data) throws IOException, ClassNotFoundException {
+    private HashMap<Long, HeartBeat> deserializeHeartbeatTable(byte[] data) throws IOException, ClassNotFoundException {
 
         ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(data);
         ObjectInputStream objectInputStream = new ObjectInputStream(byteArrayInputStream);
         Map<?, ?> map = (Map<?, ?>) objectInputStream.readObject();
         objectInputStream.close();
 
-        return (HashMap<Long, HeartbeatData>) map;
+        return (HashMap<Long, HeartBeat>) map;
     }
 
     public void switchState(){
@@ -227,4 +214,7 @@ public class Gossiper extends Thread implements LoggingServer {
         System.out.println(this.peerServer.getServerId()+": switching from FOLLOWING to LOOKING");
     }
 
+    private record HeartBeat(long heartbeatCounter, long time) implements Serializable {
+
+    }
 }

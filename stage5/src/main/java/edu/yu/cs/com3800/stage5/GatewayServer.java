@@ -44,9 +44,38 @@ public class GatewayServer implements LoggingServer {
             return t;
         }));
         httpServer.createContext("/compileandrun", new CompileAndRunHandler());
+        httpServer.createContext("/getleader", new GetLeader());
+
         logger.info("GatewayServer started at port " + this.myPort);
     }
+    private class GetLeader implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!exchange.getRequestMethod().equals("GET")) {
+                String response = "Only GET method is allowed";
+                exchange.getResponseHeaders().add("Content-Type", "text/html");
+                sendResponse(exchange, HttpURLConnection.HTTP_BAD_METHOD, response);
+                return;
+            }
 
+            if(observerPeer.getCurrentLeader() == null){
+                sendResponse(exchange, HttpURLConnection.HTTP_NO_CONTENT, "");
+            }
+
+            StringBuilder st = new StringBuilder();
+            for(Long id : peerIDtoAddress.keySet()){
+                if(observerPeer.isPeerDead(id))
+                    continue;
+                if(id == observerPeer.getCurrentLeader().getProposedLeaderID()){
+                    st.append(id).append(" - LEADER\n");
+                }
+                else{
+                    st.append(id).append(" - FOLLOWER\n");
+                }
+            }
+            sendResponse(exchange, 200, String.valueOf(st));
+        }
+    }
     private class CompileAndRunHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -71,6 +100,7 @@ public class GatewayServer implements LoggingServer {
 
             while (!isCompleted) {
                 Vote leader;
+                // don't proceed to complete the request until there is a leader
                 while ((leader = observerPeer.getCurrentLeader()) == null) {
                     try {
                         Thread.sleep(250);
@@ -113,6 +143,11 @@ public class GatewayServer implements LoggingServer {
                 } catch (InterruptedException e) {
                     break;
                 }
+                /*
+                ) If the Gateway had already sent some work to the leader before the leader was marked as
+                  failed and the (now failed) leader sends a response to the gateway after it was marked failed, the gateway will NOT accept
+                  that response; it will ignore that response from the leader and queue up the request to send to the new leader for a response.
+                 */
                  if(!observerPeer.isPeerDead(observerPeer.getCurrentLeader().getProposedLeaderID()))
                      isCompleted = true;
             }
@@ -133,14 +168,14 @@ public class GatewayServer implements LoggingServer {
             logger.fine("Request ID " + msgFromLeader.getRequestID() + " executed successfully");
         }
 
-        private static void sendResponse(HttpExchange exchange, int code, String body) throws IOException {
-            exchange.sendResponseHeaders(code, body.length());
-            exchange.getResponseBody().write(body.getBytes());
-            exchange.close();
-        }
+
     }
 
-
+    private static void sendResponse(HttpExchange exchange, int code, String body) throws IOException {
+        exchange.sendResponseHeaders(code, body.length());
+        exchange.getResponseBody().write(body.getBytes());
+        exchange.close();
+    }
 
     public void start() {
         httpServer.start();

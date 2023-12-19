@@ -194,7 +194,7 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
                 this.logger.log(Level.SEVERE, "Error communicating with worker", e);
                 // Handle reassignment or retry logic here
             }
-                this.requestToConnection.remove(msgFromGateway.getRequestID());
+            this.requestToConnection.remove(msgFromGateway.getRequestID());
         } catch (IOException e) {
             this.logger.log(Level.SEVERE, "Error reading from gateway", e);
         }
