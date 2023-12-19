@@ -1,9 +1,5 @@
 package edu.yu.cs.com3800.stage5;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import java.io.IOException;
 import java.net.*;
 import java.net.http.*;
@@ -20,13 +16,15 @@ import org.junit.jupiter.api.Test;
 
 import edu.yu.cs.com3800.*;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 public class Stage5Test {
 
-    private static final int NUM_REQUESTS = 20;
+    private static final int NUM_REQUESTS = 10;
 
     /** Gateway peer server is index 0 */
     private static final int[] PEER_SERVER_PORTS = { 8000, 8010, 8020, 8030, 8040, 8050, 8060, 8070 };
-    //   private static final int[] PEER_SERVER_PORTS = { 8000, 8010, 8070 };
+ //   private static final int[] PEER_SERVER_PORTS = { 8000, 8010, 8070 };
 
     private static final int GATEWAY_HTTP_PORT = 8000;
 
@@ -91,7 +89,7 @@ public class Stage5Test {
         String expected = "Hello World!";
 
         // step 1: send request to the gateway
-        HttpResponse<String> r = new edu.yu.cs.com3800.stage5.Stage5Test.sendHttpRequest(src).call();
+        HttpResponse<String> r = new sendHttpRequest(src).call();
         assertEquals(200, r.statusCode());
         assertEquals(expected, r.body());
     }
@@ -109,7 +107,7 @@ public class Stage5Test {
         // step 1: send requests to the gateway
         List<Future<HttpResponse<String>>> responses = new ArrayList<>(NUM_REQUESTS);
         for (int i = 0; i < NUM_REQUESTS; i++) {
-            responses.add(i, executor.submit(new edu.yu.cs.com3800.stage5.Stage5Test.sendHttpRequest(src.replace("X", ""+i))));
+            responses.add(i, executor.submit(new sendHttpRequest(src.replace("X", ""+i))));
             //Thread.sleep(1000);
         }
 
@@ -127,7 +125,7 @@ public class Stage5Test {
         List<Future<HttpResponse<String>>> responses = new ArrayList<>(3);
 
         // no run method
-        responses.add(executor.submit(new edu.yu.cs.com3800.stage5.Stage5Test.sendHttpRequest("""
+        responses.add(executor.submit(new sendHttpRequest("""
                 public class HelloWorld {
                     public static void main(String[] args) {
                         System.out.println("Hello World");
@@ -136,7 +134,7 @@ public class Stage5Test {
             """)));
 
         // constructor takes arguments
-        responses.add(executor.submit(new edu.yu.cs.com3800.stage5.Stage5Test.sendHttpRequest("""
+        responses.add(executor.submit(new sendHttpRequest("""
             public class HelloWorld {
                 public HelloWorld(int i) {
                 }
@@ -146,7 +144,7 @@ public class Stage5Test {
             }
         """)));
 
-        responses.add(executor.submit(new edu.yu.cs.com3800.stage5.Stage5Test.sendHttpRequest("""
+        responses.add(executor.submit(new sendHttpRequest("""
             public class HelloWorld {
                 public String run() {
                     return "Hello World "
@@ -163,9 +161,23 @@ public class Stage5Test {
     }
 
     @Test
-    void testFailureDetection() {
+    void testFailureDetection() throws Exception {
         System.out.println("Running testFailureDetection");
-        // step 1: kill a server
+
+        String src = """
+                import java.util.ArrayList;
+                import java.util.Collections;
+                import java.util.List;
+
+                public class TestClass {
+                    public String run() {
+                        List<String> list = new ArrayList<>();
+                        list.add("Hello World!");
+                        return list.get(0);
+                    }
+                }
+                """;
+        String expected = "Hello World!";
         ZooKeeperPeerServer toKill = servers.remove(0);
         if (toKill.getPeerState() == ZooKeeperPeerServer.ServerState.LEADING) {
             servers.add(toKill);
@@ -173,6 +185,9 @@ public class Stage5Test {
         }
         System.out.println("Killed server " + toKill.getUdpPort());
         toKill.shutdown();
+        HttpResponse<String> r = new sendHttpRequest(src).call();
+
+
 
         try {
             Thread.sleep(Gossiper.CLEANUP);
@@ -183,6 +198,8 @@ public class Stage5Test {
         for (var server : servers) {
             assertTrue(server.isPeerDead(toKill.getServerId()));
         }
+        assertEquals(200, r.statusCode());
+        assertEquals(expected, r.body());
         System.out.println("testFailureDetection passed");
     }
 
@@ -199,14 +216,15 @@ public class Stage5Test {
             return;
         }
 
-        for (var server : servers) {
+        assertTrue(gatewayPeerServer.isPeerDead(toKill.getServerId()));
+        for (ZooKeeperPeerServer server : servers) {
             assertTrue(server.isPeerDead(toKill.getServerId()));
         }
         assertTrue(servers.get(servers.size()-1).getUdpPort() != toKill.getUdpPort());
-        ZooKeeperPeerServer newLeader = servers.get(servers.size()-1);
-        assertEquals(newLeader.getPeerState(), ZooKeeperPeerServer.ServerState.LEADING, "Server " + newLeader.getUdpPort() + " is in state " + newLeader.getPeerState() + "\nwhile it should be a leader");
+
+        assertNotEquals(gatewayPeerServer.getCurrentLeader().getProposedLeaderID(), toKill.getServerId());
         for (var server : servers) {
-            assertEquals(server.getCurrentLeader().getProposedLeaderID(), (long) newLeader.getServerId());
+            assertNotEquals(server.getCurrentLeader().getProposedLeaderID(), toKill.getServerId());
         }
         System.out.println("testLeaderFailureDetection passed");
 

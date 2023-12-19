@@ -70,7 +70,7 @@ public class Gossiper extends Thread implements LoggingServer {
                 // if the method is not GET, send a 405 response
                 exchange.sendResponseHeaders(HttpURLConnection.HTTP_BAD_METHOD, 0);
                 exchange.close();
-                logger.log(Level.SEVERE,"405: Method Not Allowed.");
+                logger.log(Level.SEVERE,"Bad Method");
                 return;
             }
 
@@ -92,24 +92,31 @@ public class Gossiper extends Thread implements LoggingServer {
     @Override
     public void run() {
         Map<Long,InetSocketAddress> map = this.peerServer.getMap();
+        // update the table and add all nodes to it
         for(Long id : map.keySet()){
             heartbeatTable.put(id, new HeartBeat(heartbeatCounter, System.currentTimeMillis()));
         }
         while (!this.isInterrupted()) {
             long currentTime = System.currentTimeMillis();
+            // Every round - update my own heartbeat
             heartbeatTable.put(id, new HeartBeat(heartbeatCounter++, currentTime));
 
             try {
+                // Get gossip messages off the queue and update
+                // the table accordingly
                 updateTable(currentTime);
             } catch (IOException | ClassNotFoundException e) {
                 this.logger.log(Level.SEVERE, "Encountered a problem updating the heartbeat table");
             }
-
+            // Check all entries of the heartbeat table and check if there are
+            // nodes that failed
             checkForFailures(currentTime);
-
+            // If a node failed and CLEANUP milliseconds passed - delete
+            // from the heartbeat table
             cleanUpFailures(currentTime);
 
             try {
+                // Send gossip to a random server
                 sendGossip();
             } catch (IOException e) {
                 this.logger.log(Level.SEVERE, "Failed to gossip");
@@ -130,13 +137,19 @@ public class Gossiper extends Thread implements LoggingServer {
         Message m = null;
         while ((m = incomingMessages.poll()) != null) {
             if (m.getMessageType() == MessageType.GOSSIP) {
+                // Deserialize the table from the received gossip message
                 HashMap<Long, HeartBeat> receivedTable = deserializeHeartbeatTable(m.getMessageContents());
                 String sender = m.getSenderHost() + ":" + m.getSenderPort();
                 logger.fine("Received heartbeat table from " + sender);
 
-                String time = new SimpleDateFormat("MM/dd/yyyy, HH:mm:ss.S").format(new Date(currentTime));
-                this.verboseLogger.fine("Message from " + sender + " received at " + time + ":" +'\n'+receivedTable.toString());
+                Date date = new Date(currentTime);
+                SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                String dateString = formatter.format(date);
 
+                this.verboseLogger.fine("Message from " + sender + " received at " + dateString + ":" +'\n'+receivedTable.toString());
+
+                // Iterate all the entries of the received table, and update my table
+                // accordingly while ignoring messages from\about dead peers
                 for (Map.Entry<Long, HeartBeat> newTableEntry : receivedTable.entrySet()) {
                     long receivedId = newTableEntry.getKey();
                     long receivedHeartbeat = newTableEntry.getValue().heartbeatCounter();
@@ -147,6 +160,8 @@ public class Gossiper extends Thread implements LoggingServer {
                     }
                 }
             } else {
+                // If a message is not gossip add it back to the blocking queue so it will be processed by a different
+                // thread
                 otherMessages.add(m);
             }
         }
@@ -167,13 +182,16 @@ public class Gossiper extends Thread implements LoggingServer {
     }
 
     private void cleanUpFailures(long currentTime) {
+        //  Delete from the table after CLEANUP
         heartbeatTable.entrySet().removeIf(entry -> currentTime - entry.getValue().time() > CLEANUP);
     }
 
     private void sendGossip() throws IOException {
+        // Pick a random peer
         InetSocketAddress randomPeer = peerServer.getRandomPeer();
         if(randomPeer == null)
             return;
+        // Send gossip to it
         peerServer.sendMessage(MessageType.GOSSIP, serializeHeartbeatTable(), randomPeer);
         this.logger.fine("Sent gossip message to " + randomPeer);
     }
@@ -182,7 +200,7 @@ public class Gossiper extends Thread implements LoggingServer {
 
     private byte[] serializeHeartbeatTable() throws IOException {
         HashMap<Long, HeartBeat> tableToSend = new HashMap<>(heartbeatTable);
-        // if a peer is dead there's point to send it so it will be removed
+        // if a peer is dead there's no point to send it so it will be removed
         // from the table
         for (long id : heartbeatTable.keySet()) {
             if (peerServer.isPeerDead(id)) {
@@ -208,6 +226,7 @@ public class Gossiper extends Thread implements LoggingServer {
 
         return (HashMap<Long, HeartBeat>) map;
     }
+
 
     public void switchState(){
         this.summaryLogger.fine(this.peerServer.getServerId()+":switching from FOLLOWING to LOOKING");
