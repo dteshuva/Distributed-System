@@ -176,12 +176,12 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
             // Assign work to a worker using a TCP connection
             // TCP port = UDP port + 2
             InetSocketAddress workerAddress = getNextWorkerAddress();
+            this.requestToConnection.put(msgFromGateway.getRequestID(), socketFromGateway);
             this.logger.info("Attempting to assign work to node with port " + (workerAddress.getPort()));
             // Thread.sleep(1000);
             try (Socket socketToWorker = new Socket(workerAddress.getHostString(), workerAddress.getPort() + 2)) {
                 // Send the task to the worker
                 socketToWorker.getOutputStream().write(msgFromGateway.getNetworkPayload());
-                this.requestToConnection.put(msgFromGateway.getRequestID(), socketFromGateway);
 
                 // Wait for the response from the worker
                 byte[] response = Util.readAllBytesFromNetwork(socketToWorker.getInputStream());
@@ -192,7 +192,8 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
                 socketFromGateway.getOutputStream().write(msgFromWorker.getNetworkPayload());
             } catch (IOException e) {
                 this.logger.log(Level.SEVERE, "Error communicating with worker", e);
-                // Handle reassignment or retry logic here
+                handleReassign(msgFromGateway);
+                // Handle reassignment
             }
             this.requestToConnection.remove(msgFromGateway.getRequestID());
         } catch (IOException e) {
@@ -236,6 +237,8 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
     public void deleteDeadWorker(Long id){
         List<Message> workToDo = this.sentWork.remove(id);
         this.roundRobin.remove(id);
+        if(workToDo == null)
+            return;
         for(Message w : workToDo){
             this.requestHandlerPool.submit(()->handleReassign(w));
         }
@@ -260,7 +263,7 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
             socket.getOutputStream().write(msgFromWorker.getNetworkPayload());
         } catch (IOException e) {
             this.logger.log(Level.SEVERE, "Error communicating with worker", e);
-            // Handle reassignment or retry logic here
+            handleReassign(work);
         }
     }
 

@@ -116,6 +116,7 @@ public class JavaRunnerFollower extends Thread implements LoggingServer {
     private void processAndRespondToMessage(Socket socket, Message message) {
         Message response;
         String result;
+        InetSocketAddress sender = new InetSocketAddress(message.getSenderHost(), message.getSenderPort());
         boolean errorOccurred = false;
 
         try {
@@ -132,8 +133,13 @@ public class JavaRunnerFollower extends Thread implements LoggingServer {
         }
 
         // Respond with the result
+        // If the leader died before sending back the response the message will be queued
         response = new Message(Message.MessageType.COMPLETED_WORK, result.getBytes(), message.getReceiverHost(), message.getReceiverPort(), message.getSenderHost(), message.getSenderPort(), message.getRequestID(), errorOccurred);
-
+        if(this.peerServer.isPeerDead(sender)){
+            this.messageQueue.offer(response);
+            this.logger.info("Leader has died. Queuing the response to be sent to new leader");
+            return;
+        }
         try {
             socket.getOutputStream().write(response.getNetworkPayload());
             this.logger.fine("Responded to " + socket.getInetAddress() + "\n\tResult: " + result);
