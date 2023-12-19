@@ -186,6 +186,10 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
                 // Wait for the response from the worker
                 byte[] response = Util.readAllBytesFromNetwork(socketToWorker.getInputStream());
                 Message msgFromWorker = new Message(response);
+                if(peerServer.isPeerDead(workerAddress)){
+                    // worker died in the meantime so will reassign the work
+                    handleReassign(msgFromGateway);
+                }
                 this.logger.fine("Received response from worker: " + msgFromWorker);
 
                 // Send the worker's response back to the gateway
