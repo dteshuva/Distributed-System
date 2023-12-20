@@ -97,7 +97,8 @@ public class GatewayServer implements LoggingServer {
             Message msgFromLeader = null;
 
             boolean isCompleted = false;
-
+            // Label the outer while loop
+            outerLoop:
             while (!isCompleted) {
                 Vote leader;
                 // don't proceed to complete the request until there is a leader
@@ -123,7 +124,7 @@ public class GatewayServer implements LoggingServer {
                         Thread.sleep(500);
                         if(observerPeer.isPeerDead(observerPeer.getCurrentLeader().getProposedLeaderID())){
                             logger.info("Leader has been reported as failed. Trying again");
-                            continue;
+                            continue outerLoop;
                         }
                     }
                     byte[] response = Util.readAllBytes(in);
@@ -133,11 +134,11 @@ public class GatewayServer implements LoggingServer {
                 } catch (ConnectException e) {
                     logger.fine("Unable to connect to leader");
                     try {
-						Thread.sleep(3000);
+						Thread.sleep(Gossiper.GOSSIP * 4);
 					} catch (InterruptedException e1) {
 						return;
 					}
-                    continue;
+                    continue outerLoop; // Restart the outer while loop
                 } catch (IOException e) {
                     logger.log(Level.SEVERE, "IOException occurred in gateway", e);
                 } catch (InterruptedException e) {

@@ -104,14 +104,12 @@ public class Stage5Test {
             }
         """;
 
-        // step 1: send requests to the gateway
         List<Future<HttpResponse<String>>> responses = new ArrayList<>(NUM_REQUESTS);
         for (int i = 0; i < NUM_REQUESTS; i++) {
             responses.add(i, executor.submit(new sendHttpRequest(src.replace("X", ""+i))));
             //Thread.sleep(1000);
         }
 
-        // step 2: validate responses from gateway
         for (int i = 0; i < NUM_REQUESTS; i++) {
             HttpResponse<String> r = responses.get(i).get();
             assertEquals(200, r.statusCode());
@@ -121,10 +119,10 @@ public class Stage5Test {
 
     @Test
     void testBadRequests() throws InterruptedException, ExecutionException {
-        // step 1: send bad requests to the gateway
+
         List<Future<HttpResponse<String>>> responses = new ArrayList<>(3);
 
-        // no run method
+
         responses.add(executor.submit(new sendHttpRequest("""
                 public class HelloWorld {
                     public static void main(String[] args) {
@@ -133,7 +131,7 @@ public class Stage5Test {
                 }
             """)));
 
-        // constructor takes arguments
+
         responses.add(executor.submit(new sendHttpRequest("""
             public class HelloWorld {
                 public HelloWorld(int i) {
@@ -152,7 +150,6 @@ public class Stage5Test {
             }
         """)));
 
-        // step 2: validate bad responses from gateway
         for (Future<HttpResponse<String>> response : responses) {
             HttpResponse<String> r = response.get();
             assertEquals(400, r.statusCode());
@@ -185,6 +182,7 @@ public class Stage5Test {
         }
         System.out.println("Killed server " + toKill.getUdpPort());
         toKill.shutdown();
+        Thread.sleep(1000);
         HttpResponse<String> r = new sendHttpRequest(src).call();
 
 
@@ -203,12 +201,39 @@ public class Stage5Test {
         System.out.println("testFailureDetection passed");
     }
 
+    void sendRequests() throws ExecutionException, InterruptedException {
+        String src = """
+            public class HelloWorld {
+                public String run() {
+                    return "Hello " + "world! " + X;
+                }
+            }
+        """;
+
+        List<Future<HttpResponse<String>>> responses = new ArrayList<>(NUM_REQUESTS);
+        for (int i = 0; i < NUM_REQUESTS; i++) {
+            responses.add(i, executor.submit(new sendHttpRequest(src.replace("X", ""+i))));
+            //Thread.sleep(1000);
+        }
+
+        for (int i = 0; i < NUM_REQUESTS; i++) {
+            HttpResponse<String> r = responses.get(i).get();
+            assertEquals(200, r.statusCode());
+            assertEquals("Hello world! " + i, r.body());
+        }
+        System.out.println("Checked all requests");
+    }
+
     @Test
-    void testLeaderFailureDetection(){
+    void testLeaderFailureDetection() throws ExecutionException, InterruptedException {
         System.out.println("Running testLeaderFailureDetection");
         ZooKeeperPeerServer toKill = servers.remove(servers.size()-1);
 
         toKill.shutdown();
+
+        Thread.sleep(1000);
+
+        sendRequests();
 
         try {
             Thread.sleep(Gossiper.CLEANUP);
@@ -232,6 +257,11 @@ public class Stage5Test {
 
 
 
+
+
+
+
+
     private class sendHttpRequest implements Callable<HttpResponse<String>> {
         private final String src;
 
@@ -249,5 +279,24 @@ public class Stage5Test {
                     .build();
             return httpClient.send(request, BodyHandlers.ofString());
         }
+    }
+
+    private class getLeaderRequest implements Callable<HttpResponse<String>>{
+
+        private getLeaderRequest(){
+
+        }
+
+        @Override
+        public HttpResponse<String> call() throws Exception {
+            URI uri = new URL("http", "localhost", GATEWAY_HTTP_PORT, "/getleader").toURI();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(uri)
+                    .setHeader("Content-type", "text/x-java-source")
+                    .GET()
+                    .build();
+            return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        }
+
     }
 }
