@@ -110,10 +110,10 @@ public class Gossiper extends Thread implements LoggingServer {
             }
             // Check all entries of the heartbeat table and check if there are
             // nodes that failed
-            checkForFailures(currentTime);
+            checkFailures(currentTime);
             // If a node failed and CLEANUP milliseconds passed - delete
             // from the heartbeat table
-            cleanUpFailures(currentTime);
+            checkCleanUp(currentTime);
 
             try {
                 // Send gossip to a random server
@@ -139,14 +139,12 @@ public class Gossiper extends Thread implements LoggingServer {
             if (m.getMessageType() == MessageType.GOSSIP) {
                 // Deserialize the table from the received gossip message
                 HashMap<Long, HeartBeat> receivedTable = deserializeHeartbeatTable(m.getMessageContents());
-                String sender = m.getSenderHost() + ":" + m.getSenderPort();
-                logger.fine("Received heartbeat table from " + sender);
 
                 Date date = new Date(currentTime);
                 SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
                 String dateString = formatter.format(date);
 
-                this.verboseLogger.fine("Message from " + sender + " received at " + dateString + ":" +'\n'+receivedTable.toString());
+                this.verboseLogger.fine("Gossip from " + m.getSenderHost() + "/" + m.getSenderPort() + " received at " + dateString + ":\n" + receivedTable.toString());
 
                 // Iterate all the entries of the received table, and update my table
                 // accordingly while ignoring messages from\about dead peers
@@ -156,7 +154,7 @@ public class Gossiper extends Thread implements LoggingServer {
 
                     if (!peerServer.isPeerDead(receivedId) && (!heartbeatTable.containsKey(receivedId) || receivedHeartbeat > heartbeatTable.get(receivedId).heartbeatCounter())) {
                         heartbeatTable.put(receivedId, new HeartBeat(receivedHeartbeat, currentTime)); // Add it
-                        this.summaryLogger.fine(id + ": updated " + receivedId + "'s heartbeat sequence to " + receivedHeartbeat + " based on message from " + sender + " at node time " + currentTime);
+                        this.summaryLogger.fine(id + ": updated " + receivedId + "'s heartbeat sequence to " + receivedHeartbeat + " based on message from " + m.getSenderPort() + " at node time " + currentTime);
                     }
                 }
             } else {
@@ -168,7 +166,7 @@ public class Gossiper extends Thread implements LoggingServer {
         incomingMessages.addAll(otherMessages);
     }
 
-    private void checkForFailures(long currentTime) {
+    private void checkFailures(long currentTime) {
         for (Map.Entry<Long, HeartBeat> entry : heartbeatTable.entrySet()) {
             if (peerServer.isPeerDead(entry.getKey())) {
                 continue;
@@ -181,7 +179,7 @@ public class Gossiper extends Thread implements LoggingServer {
         }
     }
 
-    private void cleanUpFailures(long currentTime) {
+    private void checkCleanUp(long currentTime) {
         //  Delete from the table after CLEANUP
         heartbeatTable.entrySet().removeIf(entry -> currentTime - entry.getValue().time() > CLEANUP);
     }
@@ -229,7 +227,7 @@ public class Gossiper extends Thread implements LoggingServer {
 
 
     public void switchState(){
-        this.summaryLogger.fine(this.peerServer.getServerId()+":switching from FOLLOWING to LOOKING");
+        this.summaryLogger.fine(this.peerServer.getServerId()+": switching from FOLLOWING to LOOKING");
         System.out.println(this.peerServer.getServerId()+": switching from FOLLOWING to LOOKING");
     }
 

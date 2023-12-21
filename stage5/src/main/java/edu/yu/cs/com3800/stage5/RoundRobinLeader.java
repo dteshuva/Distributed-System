@@ -118,7 +118,7 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
         try {
             Thread.sleep(1000);
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            this.logger.log(Level.SEVERE,"Interrupted exception: ",e);
         }
         while (!this.isInterrupted()) {
             try {
@@ -208,6 +208,8 @@ public class RoundRobinLeader extends Thread implements LoggingServer {
 
     private synchronized InetSocketAddress getNextWorkerAddress() {
         // makae sure gatewayserver isnt here
+        if(this.roundRobin.isEmpty())
+            return null;
         long id = this.roundRobin.poll();
         InetSocketAddress nextWorker = this.peerServer.getPeerByID(id);
         this.roundRobin.add(id);

@@ -79,18 +79,8 @@ public class GatewayServer implements LoggingServer {
     private class CompileAndRunHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            if (!exchange.getRequestMethod().equals("POST")) {
-                String response = "Only POST method is allowed";
-                exchange.getResponseHeaders().add("Content-Type", "text/html");
-                sendResponse(exchange, HttpURLConnection.HTTP_BAD_METHOD, response);
-                return;
-            }
 
-            if (!"text/x-java-source".equals(exchange.getRequestHeaders().getFirst("Content-Type"))) {
-                String response = "Content must be a java file";
-                sendResponse(exchange, HttpURLConnection.HTTP_BAD_REQUEST, response);
-                return;
-            }
+            if(!checkRequest(exchange)){ return; }
 
             InputStream requestBody = exchange.getRequestBody();
             byte[] sourceCodeBytes = requestBody.readAllBytes();
@@ -124,6 +114,8 @@ public class GatewayServer implements LoggingServer {
                         Thread.sleep(500);
                         if(observerPeer.isPeerDead(observerPeer.getCurrentLeader().getProposedLeaderID())){
                             logger.info("Leader has been reported as failed. Trying again");
+                            // leader is dead so I will start again to set
+                            // a tcp connection with a new leader
                             continue outerLoop;
                         }
                     }
@@ -132,22 +124,21 @@ public class GatewayServer implements LoggingServer {
                     logger.fine("Response received from leader:\n" + msgFromLeader);
                     socketToLeader.close();
                 } catch (ConnectException e) {
-                    logger.fine("Unable to connect to leader");
+                    logger.fine("Gateway couldn't establish a connection with the leader");
                     try {
 						Thread.sleep(Gossiper.GOSSIP * 4);
 					} catch (InterruptedException e1) {
 						return;
 					}
-                    continue outerLoop; // Restart the outer while loop
+                    continue;
                 } catch (IOException e) {
-                    logger.log(Level.SEVERE, "IOException occurred in gateway", e);
+                    logger.log(Level.SEVERE, "IOException: ", e);
                 } catch (InterruptedException e) {
                     break;
                 }
                 /*
-                ) If the Gateway had already sent some work to the leader before the leader was marked as
-                  failed and the (now failed) leader sends a response to the gateway after it was marked failed, the gateway will NOT accept
-                  that response; it will ignore that response from the leader and queue up the request to send to the new leader for a response.
+                    Failed leader, so I'm going to ignore the response and wait for a new leader to be elected to
+                    execute the request again
                  */
                  if(!observerPeer.isPeerDead(observerPeer.getCurrentLeader().getProposedLeaderID()))
                      isCompleted = true;
@@ -169,7 +160,21 @@ public class GatewayServer implements LoggingServer {
             logger.fine("Request ID " + msgFromLeader.getRequestID() + " executed successfully");
         }
 
+        private boolean checkRequest(HttpExchange exchange) throws IOException {
+            if (!exchange.getRequestMethod().equals("POST")) {
+                String response = "Only POST method is allowed";
+                exchange.getResponseHeaders().add("Content-Type", "text/html");
+                sendResponse(exchange, HttpURLConnection.HTTP_BAD_METHOD, response);
+                return false;
+            }
 
+            if (!"text/x-java-source".equals(exchange.getRequestHeaders().getFirst("Content-Type"))) {
+                String response = "Content type must be java";
+                sendResponse(exchange, HttpURLConnection.HTTP_BAD_REQUEST, response);
+                return false;
+            }
+            return true;
+        }
     }
 
     private static void sendResponse(HttpExchange exchange, int code, String body) throws IOException {
