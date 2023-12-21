@@ -1,5 +1,6 @@
 package edu.yu.cs.com3800.stage5;
 
+import java.awt.*;
 import java.io.IOException;
 import java.net.*;
 import java.net.http.*;
@@ -95,7 +96,7 @@ public class Stage5Test {
     }
 
     @Test
-    public void testConcurrentRequests() throws InterruptedException, ExecutionException {
+    public void testConcurrentRequests() throws Exception {
         String src = """
             public class HelloWorld {
                 public String run() {
@@ -236,7 +237,7 @@ public class Stage5Test {
         sendRequests();
 
         try {
-            Thread.sleep(Gossiper.CLEANUP);
+            Thread.sleep(Gossiper.GOSSIP * 13);
         } catch (InterruptedException e) {
             return;
         }
@@ -279,6 +280,27 @@ public class Stage5Test {
                     .build();
             return httpClient.send(request, BodyHandlers.ofString());
         }
+    }
+
+    private class getLogger implements Callable<HttpResponse<String>>{
+        private final String context;
+        private final int httpPort;
+        private getLogger(String context, int portNum){
+            this.context = context;
+            httpPort = portNum;
+        }
+
+        @Override
+        public HttpResponse<String> call() throws Exception {
+            URI uri = new URL("http", "localhost", httpPort + 4, context).toURI();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(uri)
+                    .setHeader("Content-type", "text/x-java-source")
+                    .GET()
+                    .build();
+            return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        }
+
     }
 
     private class getLeaderRequest implements Callable<HttpResponse<String>>{

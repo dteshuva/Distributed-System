@@ -3,6 +3,7 @@ package edu.yu.cs.com3800.stage5;
 import edu.yu.cs.com3800.ZooKeeperPeerServer;
 import org.junit.jupiter.api.Test;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
@@ -20,7 +21,6 @@ public class DemoTest {
     private static final int NUM_REQUESTS = 9;
 
     private static final int[] PEER_SERVER_PORTS = { 8000, 8010, 8020, 8030, 8040, 8050, 8060, 8070 };
-    //   private static final int[] PEER_SERVER_PORTS = { 8000, 8010, 8070 };
 
     private static final int GATEWAY_HTTP_PORT = 8000;
 
@@ -228,9 +228,22 @@ public class DemoTest {
         System.out.println(r.body());
 
         printNodes();
+        System.out.println("Printing logs");
 
+        String summaryLoggerName = "Summary-logger-" + Gossiper.class.getCanonicalName()  + "-on-server-with-udpPort-" + GATEWAY_HTTP_PORT;
+        System.out.println("./logs/" + summaryLoggerName + ".log");
+        String verboseLoggerName = "Verbose-logger-" + Gossiper.class.getCanonicalName()  + "-on-server-with-udpPort-" + GATEWAY_HTTP_PORT;
+        System.out.println("./logs/" + verboseLoggerName + ".log");
         // List the paths to files containing the Gossip messages received by each node.
-        System.out.println("The files containing the Gossip messages received by each node are in the ./logs path along with all other files");
+        for(ZooKeeperPeerServer server : servers){
+            if(server.isPeerDead(server.getServerId()))
+                continue;
+
+            summaryLoggerName = "Summary-logger-" + Gossiper.class.getCanonicalName()  + "-on-server-with-udpPort-" + server.getUdpPort();
+            System.out.println("./logs/" + summaryLoggerName + ".log");
+            verboseLoggerName = "Verbose-logger-" + Gossiper.class.getCanonicalName()  + "-on-server-with-udpPort-" + server.getUdpPort();
+            System.out.println("./logs/" + verboseLoggerName + ".log");
+        }
 
         shutdownServers();
     }

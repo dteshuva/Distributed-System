@@ -43,14 +43,14 @@ public class Gossiper extends Thread implements LoggingServer {
         int port = peerServer.getUdpPort();
         setName("Gossiper-udpPort-" + port);
         this.logger = initializeLogging(Gossiper.class.getCanonicalName() + "-on-server-with-udpPort-" + port);
-
-        this.summaryLogger = initializeLogging("Summary-logger-" + Gossiper.class.getCanonicalName()  + "-on-server-with-udpPort-" + port, false);
-
-        this.verboseLogger = initializeLogging("Verbose-logger-" + Gossiper.class.getCanonicalName()  + "-on-server-with-udpPort-" + port, false);
+        String summaryLoggerName = "Summary-logger-" + Gossiper.class.getCanonicalName()  + "-on-server-with-udpPort-" + port;
+        this.summaryLogger = initializeLogging(summaryLoggerName, false);
+        String verboseLoggerName = "Verbose-logger-" + Gossiper.class.getCanonicalName()  + "-on-server-with-udpPort-" + port;
+        this.verboseLogger = initializeLogging(verboseLoggerName, false);
 
         httpServer = HttpServer.create(new InetSocketAddress(port + 4), 0);
-        httpServer.createContext("/summary", new getLogHandler("./logs/Summary-logger-Gossip-on-server-with-udpPort-" + port + ".log"));
-        httpServer.createContext("/verbose", new getLogHandler("./logs/Verbose-logger-Gossip-on-server-with-udpPort-" + port + ".log"));
+        httpServer.createContext("/summary", new getLogHandler("./logs/" + summaryLoggerName + ".log"));
+        httpServer.createContext("/verbose", new getLogHandler("./logs/" + verboseLoggerName + ".log"));
         httpServer.start();
     }
 
