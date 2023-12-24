@@ -22,7 +22,7 @@ public class DemoTest {
 
     private static final int[] PEER_SERVER_PORTS = { 8000, 8010, 8020, 8030, 8040, 8050, 8060, 8070 };
 
-    private static final int GATEWAY_HTTP_PORT = 8000;
+    private static final int GATEWAY_HTTP_PORT = 8001;
 
     private final HttpClient httpClient = HttpClient.newHttpClient();
     ExecutorService executor = Executors.newCachedThreadPool();
@@ -50,7 +50,7 @@ public class DemoTest {
         // step 3: create and start gateway
         HashMap<Long, InetSocketAddress> map = (HashMap<Long, InetSocketAddress>) peerIDtoAddress.clone();
         var address = map.remove(0L);
-        gatewayPeerServer = new GatewayPeerServerImpl(GATEWAY_HTTP_PORT, 0, 0L, map);
+        gatewayPeerServer = new GatewayPeerServerImpl(8000, 0, 0L, map);
         gatewayPeerServer.start();
         gateway = new GatewayServer(GATEWAY_HTTP_PORT, gatewayPeerServer);
         gateway.start();

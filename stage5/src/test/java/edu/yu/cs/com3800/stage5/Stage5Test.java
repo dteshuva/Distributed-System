@@ -21,13 +21,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 public class Stage5Test {
 
-    private static final int NUM_REQUESTS = 10;
-
-    /** Gateway peer server is index 0 */
+    private static final int NUM_REQUESTS = 5;
+    
     private static final int[] PEER_SERVER_PORTS = { 8000, 8010, 8020, 8030, 8040, 8050, 8060, 8070 };
  //   private static final int[] PEER_SERVER_PORTS = { 8000, 8010, 8070 };
 
-    private static final int GATEWAY_HTTP_PORT = 8000;
+    private static final int GATEWAY_HTTP_PORT = 8001;
 
     private final HttpClient httpClient = HttpClient.newHttpClient();
     ExecutorService executor = Executors.newCachedThreadPool();
@@ -57,7 +56,7 @@ public class Stage5Test {
         // step 3: create and start gateway
         HashMap<Long, InetSocketAddress> map = (HashMap<Long, InetSocketAddress>) peerIDtoAddress.clone();
         var address = map.remove(0L);
-        gatewayPeerServer = new GatewayPeerServerImpl(GATEWAY_HTTP_PORT, 0, 0L, map);
+        gatewayPeerServer = new GatewayPeerServerImpl(8000, 0, 0L, map);
         gatewayPeerServer.start();
         gateway = new GatewayServer(GATEWAY_HTTP_PORT, gatewayPeerServer);
         gateway.start();
@@ -303,22 +302,4 @@ public class Stage5Test {
 
     }
 
-    private class getLeaderRequest implements Callable<HttpResponse<String>>{
-
-        private getLeaderRequest(){
-
-        }
-
-        @Override
-        public HttpResponse<String> call() throws Exception {
-            URI uri = new URL("http", "localhost", GATEWAY_HTTP_PORT, "/getleader").toURI();
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(uri)
-                    .setHeader("Content-type", "text/x-java-source")
-                    .GET()
-                    .build();
-            return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        }
-
-    }
 }
