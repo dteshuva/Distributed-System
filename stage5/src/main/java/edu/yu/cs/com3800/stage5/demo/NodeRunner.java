@@ -11,18 +11,11 @@ public class NodeRunner {
     protected static final int[] NODE_PORTS = {9000, 9010, 9020, 9030, 9040, 9050, 9060, 9070}; // 9000 is gateway
     protected static final int GATEWAY_HTTP_PORT = 9000;
 
-    /**
-     * This main method starts a single node
-     * The first command line argument is the ID of the node to start
-     * the port is picked from the NODE_PORTS array based on the ID
-     * 
-     * If the ID is 0, then the gateway is started
-     */
     public static void main(String[] args) throws IOException {
         long thisId = Long.parseLong(args[0]); // node id or 0 for gateway
 
         // create map of peer ids to addresses
-        HashMap<Long, InetSocketAddress> peerIdToAddress = new HashMap<>(3);
+        HashMap<Long, InetSocketAddress> peerIdToAddress = new HashMap<>();
         for (int i = 0; i < NODE_PORTS.length; i++) {
             peerIdToAddress.put((long) i, new InetSocketAddress("localhost", NODE_PORTS[i]));
         }

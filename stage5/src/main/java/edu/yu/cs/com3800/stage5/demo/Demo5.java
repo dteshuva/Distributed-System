@@ -1,14 +1,15 @@
 package edu.yu.cs.com3800.stage5.demo;
 
+import edu.yu.cs.com3800.stage5.Gossiper;
+
 import java.net.URI;
 import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.net.http.HttpRequest.BodyPublishers;
+import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.OptionalInt;
 import java.util.concurrent.Callable;
@@ -16,11 +17,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import edu.yu.cs.com3800.ZooKeeperPeerServer;
-import edu.yu.cs.com3800.stage5.Gossiper;
-
-import static edu.yu.cs.com3800.stage5.demo.NodeRunner.NODE_PORTS;
 import static edu.yu.cs.com3800.stage5.demo.NodeRunner.GATEWAY_HTTP_PORT;
+import static edu.yu.cs.com3800.stage5.demo.NodeRunner.NODE_PORTS;
 
 public class Demo5 {
 
@@ -94,8 +92,8 @@ public class Demo5 {
         while ((leaderId = getLeaderFromGateway()).isEmpty()) {
             Thread.sleep(250);
         }
-        
-        // Print out the responses the client receives from the Gateway for the 9 requests sent in step 6. 
+
+        // Print out the responses the client receives from the Gateway for the 9 requests sent in step 6.
         for (int i = 10; i <= 18; i++) {
             var response = responses.get(i).get();
             System.out.println("Response " + i + ":\n\tCode: " + response.statusCode() + "\n\tBody: " + response.body());

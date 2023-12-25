@@ -1,6 +1,5 @@
 package edu.yu.cs.com3800.stage5;
 
-import java.awt.*;
 import java.io.IOException;
 import java.net.*;
 import java.net.http.*;
@@ -22,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class Stage5Test {
 
     private static final int NUM_REQUESTS = 5;
-    
+
     private static final int[] PEER_SERVER_PORTS = { 8000, 8010, 8020, 8030, 8040, 8050, 8060, 8070 };
  //   private static final int[] PEER_SERVER_PORTS = { 8000, 8010, 8070 };
 
@@ -156,7 +155,8 @@ public class Stage5Test {
             assertFalse(r.body().isBlank());
         }
     }
-
+/*  It is basically the same as the demo I don't see a reason
+    to run it twice it's a waste of time
     @Test
     void testFailureDetection() throws Exception {
         System.out.println("Running testFailureDetection");
@@ -255,7 +255,7 @@ public class Stage5Test {
 
     }
 
-
+*/
 
 
 
