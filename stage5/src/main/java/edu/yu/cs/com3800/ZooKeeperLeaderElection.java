@@ -69,7 +69,6 @@ public class ZooKeeperLeaderElection {
 
     public synchronized Vote lookForLeader()
     {
-        Queue<Message> otherMessages = new LinkedList<>();
         //send initial notifications to other peers to get things started
         sendNotifications();
         Map<Long, ElectionNotification> receivedVotes = new HashMap<>();
@@ -116,7 +115,6 @@ public class ZooKeeperLeaderElection {
                             } catch (InterruptedException ignored) {
                             }
                             if (!incomingMessages.isEmpty()) break;
-                            incomingMessages.addAll(otherMessages);
                             return acceptElectionWinner(notification);
                         }
 
@@ -149,8 +147,6 @@ public class ZooKeeperLeaderElection {
 
                 }
             }
-            otherMessages.add(message);
-          //  incomingMessages.add(message);
         }
         return this.getCurrentVote();
     }

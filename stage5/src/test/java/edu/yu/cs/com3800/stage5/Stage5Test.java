@@ -22,7 +22,7 @@ public class Stage5Test {
 
     private static final int NUM_REQUESTS = 5;
 
-    private static final int[] PEER_SERVER_PORTS = { 8000, 8010, 8020, 8030, 8040, 8050, 8060, 8070 };
+    private static final int[] PEER_SERVER_PORTS = { 9000, 9010, 9020, 9030, 9040, 9050, 9060, 9070 };
  //   private static final int[] PEER_SERVER_PORTS = { 8000, 8010, 8070 };
 
     private static final int GATEWAY_HTTP_PORT = 8001;

@@ -134,8 +134,7 @@ public class Gossiper extends Thread implements LoggingServer {
     }
 
     private void updateTable(long currentTime) throws IOException, ClassNotFoundException {
-        Queue<Message> otherMessages = new LinkedList<>();
-        Message m = null;
+        Message m;
         while ((m = incomingMessages.poll()) != null) {
             if (m.getMessageType() == MessageType.GOSSIP) {
                 // Deserialize the table from the received gossip message
@@ -158,13 +157,8 @@ public class Gossiper extends Thread implements LoggingServer {
                         this.summaryLogger.fine(id + ": updated " + receivedId + "'s heartbeat sequence to " + receivedHeartbeat + " based on message from " + (m.getSenderPort() - 6) + " at node time " + currentTime);
                     }
                 }
-            } else {
-                // If a message is not gossip add it back to the blocking queue so it will be processed by a different
-                // thread
-                otherMessages.add(m);
             }
         }
-        incomingMessages.addAll(otherMessages);
     }
 
     private void checkFailures(long currentTime) {
