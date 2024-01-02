@@ -22,7 +22,7 @@ import edu.yu.cs.com3800.Message.MessageType;
 public class Gossiper extends Thread implements LoggingServer {
 
     public static final int GOSSIP = 3000;
-    public static final int FAIL = GOSSIP * 13;
+    public static final int FAIL = GOSSIP * 10;
     public static final int CLEANUP = FAIL * 2;
 
     private final ZooKeeperPeerServerImpl peerServer;
