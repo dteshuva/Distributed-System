@@ -33,7 +33,7 @@ public class Demo {
 
     private static final ExecutorService executor = Executors.newCachedThreadPool();
 
-    
+
     public static void main(String[] args) throws Exception {
 
         // 2. Create a cluster of 7 nodes and one gateway, starting each in their own JVM
@@ -65,14 +65,14 @@ public class Demo {
 
         // 5. kill -9 a follower JVM, printing out which one you are killing.
         int toKill = leaderId.getAsInt() == 2 ? 3 : 2;
-        System.out.println("Killing follower ID " + toKill + "\n");
+        System.out.println("Killing follower with ID " + toKill + "\n");
         nodes[toKill].destroyForcibly();
         Thread.sleep(Gossiper.CLEANUP); // wait for others to notice it is dead
         getLeaderFromGateway(); // retrieve and display the list of nodes from the Gateway. The dead node should not be on the list
 
         // 6. kill -9 the leader JVM and then pause 1000 milliseconds.
         toKill = leaderId.getAsInt();
-        System.out.println("Killing leader ID " + toKill + "\n");
+        System.out.println("Killing leader with ID " + toKill + "\n");
         nodes[toKill].destroyForcibly();
         Thread.sleep(1000);
 
@@ -103,10 +103,8 @@ public class Demo {
         System.out.println("Status code: " + response.statusCode() + "\n" + response.body() +"\n");
 
         // 9. List the paths to files containing the Gossip messages received by each node.
-        String summaryLoggerName = "Summary-logger-" + Gossiper.class.getCanonicalName()  + "-on-server-with-udpPort-" + GATEWAY_HTTP_PORT;
-        System.out.println("./logs/" + summaryLoggerName + ".log");
-        String verboseLoggerName = "Verbose-logger-" + Gossiper.class.getCanonicalName()  + "-on-server-with-udpPort-" + GATEWAY_HTTP_PORT;
-        System.out.println("./logs/" + verboseLoggerName + ".log");
+        String summaryLoggerName;
+        String verboseLoggerName;
         // List the paths to files containing the Gossip messages received by each node.
         for(int port : NODE_PORTS){
 

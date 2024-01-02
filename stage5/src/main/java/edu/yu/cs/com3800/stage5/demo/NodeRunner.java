@@ -23,12 +23,10 @@ public class NodeRunner {
         // create and start server (or gateway)
         var address = peerIdToAddress.remove(thisId);
         if (thisId == 0L) {
-            System.out.println("Starting gateway 0");
             GatewayPeerServerImpl gatewayPeerServer = new GatewayPeerServerImpl(GATEWAY_HTTP_PORT, 0, 0L, peerIdToAddress);
             gatewayPeerServer.start();
             new GatewayServer(GATEWAY_HTTP_PORT, gatewayPeerServer).start();
         } else {
-            System.out.println("Starting server " + thisId);
             new ZooKeeperPeerServerImpl(address.getPort(), 0, thisId, peerIdToAddress, 0L).start();
         }
     }
