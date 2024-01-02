@@ -114,6 +114,16 @@ public class Stage5Test {
             assertEquals(200, r.statusCode());
             assertEquals("Hello world! " + i, r.body());
         }
+
+        for(ZooKeeperPeerServer server : servers){
+            invokeCall("/summary", server);
+            invokeCall("/verbose", server);
+        }
+    }
+
+    private void invokeCall(String context, ZooKeeperPeerServer server) throws Exception {
+        getLogger logger = new getLogger(context, server.getUdpPort());
+        System.out.println(logger.call().body());
     }
 
     @Test

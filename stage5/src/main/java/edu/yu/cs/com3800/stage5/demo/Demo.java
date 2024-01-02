@@ -20,23 +20,20 @@ import java.util.concurrent.Future;
 import static edu.yu.cs.com3800.stage5.demo.NodeRunner.GATEWAY_HTTP_PORT;
 import static edu.yu.cs.com3800.stage5.demo.NodeRunner.NODE_PORTS;
 
-public class Demo5 {
+public class Demo {
 
     private static final HttpClient httpClient = HttpClient.newHttpClient();
     private static final String javaCode = """
             public class HelloWorld {
                 public String run() {
-                    return "Hello from request number XXX";
+                    return "Hello world! X";
                 }
             }
             """;
 
     private static final ExecutorService executor = Executors.newCachedThreadPool();
 
-    /**
-     * This is the demo script for stage 5
-     * @throws Exception
-     */
+    
     public static void main(String[] args) throws Exception {
 
         // 2. Create a cluster of 7 nodes and one gateway, starting each in their own JVM
@@ -56,18 +53,18 @@ public class Demo5 {
         List<Future<HttpResponse<String>>> responses = new ArrayList<>(9);
         responses.add(0, null);
         for (int i = 1; i <= 9; i++) {
-            String request = javaCode.replace("XXX", Integer.toString(i));
+            String request = javaCode.replace("X", Integer.toString(i));
             responses.add(i, executor.submit(new sendCompileAndRun(request)));
-            System.out.println("Sending request " + i + ":\n" + request);
+            System.out.println(request + "\n");
         }
         // wait to get all the responses and print them out
         for (int i = 1; i <= 9; i++) {
             var response = responses.get(i).get();
-            System.out.println("Response " + i + ":\n\tCode: " + response.statusCode() + "\n\tBody: " + response.body());
+            System.out.println("Status code: " + response.statusCode() + "\n" + response.body() +"\n");
         }
 
         // 5. kill -9 a follower JVM, printing out which one you are killing.
-        int toKill = leaderId.getAsInt() == 3 ? 4 : 3;
+        int toKill = leaderId.getAsInt() == 2 ? 3 : 2;
         System.out.println("Killing follower ID " + toKill + "\n");
         nodes[toKill].destroyForcibly();
         Thread.sleep(Gossiper.CLEANUP); // wait for others to notice it is dead
@@ -81,9 +78,9 @@ public class Demo5 {
 
         // Send/display 9 more client requests to the gateway, in the background
         for (int i = 10; i <= 18; i++) {
-            String request = javaCode.replace("XXX", Integer.toString(i));
+            String request = javaCode.replace("X", Integer.toString(i));
             responses.add(i, executor.submit(new sendCompileAndRun(request)));
-            System.out.println("Sending request " + i + ":\n" + request);
+            System.out.println(request + "\n");
         }
 
         // 7. Wait for the Gateway to have a new leader, and then print out the node ID of the leader.
@@ -95,15 +92,15 @@ public class Demo5 {
 
         // Print out the responses the client receives from the Gateway for the 9 requests sent in step 6.
         for (int i = 10; i <= 18; i++) {
-            var response = responses.get(i).get();
-            System.out.println("Response " + i + ":\n\tCode: " + response.statusCode() + "\n\tBody: " + response.body());
+            HttpResponse<String> response = responses.get(i).get();
+            System.out.println("Status code: " + response.statusCode() + "\n" + response.body() +"\n");
         }
 
         // 8. Send/display 1 more client request (in the foreground), print the response
-        String request = javaCode.replace("XXX", "19");
-        System.out.println("Sending request 19:\n" + request);
+        String request = javaCode.replace("X", "19");
+        System.out.println(request + "\n");
         HttpResponse<String> response = new sendCompileAndRun(request).call();
-        System.out.println("Response 19:\n\tCode: " + response.statusCode() + "\n\tBody: " + response.body());
+        System.out.println("Status code: " + response.statusCode() + "\n" + response.body() +"\n");
 
         // 9. List the paths to files containing the Gossip messages received by each node.
         String summaryLoggerName = "Summary-logger-" + Gossiper.class.getCanonicalName()  + "-on-server-with-udpPort-" + GATEWAY_HTTP_PORT;
@@ -144,10 +141,7 @@ public class Demo5 {
         }
     }
 
-    /**
-     * Asks the gateway for the id of the leader
-     * @return the id of the leader if there is one
-     */
+
     private static OptionalInt getLeaderFromGateway() throws Exception {
         System.out.println("Asking gateway for leader:");
         URI uri = new URL("http", "localhost", GATEWAY_HTTP_PORT, "/getleader").toURI();
