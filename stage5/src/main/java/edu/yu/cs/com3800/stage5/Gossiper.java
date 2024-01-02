@@ -155,7 +155,7 @@ public class Gossiper extends Thread implements LoggingServer {
 
                     if (!peerServer.isPeerDead(receivedId) && (!heartbeatTable.containsKey(receivedId) || receivedHeartbeat > heartbeatTable.get(receivedId).heartbeatCounter())) {
                         heartbeatTable.put(receivedId, new HeartBeat(receivedHeartbeat, currentTime)); // Add it
-                        this.summaryLogger.fine(id + ": updated " + receivedId + "'s heartbeat sequence to " + receivedHeartbeat + " based on message from " + m.getSenderPort() + " at node time " + currentTime);
+                        this.summaryLogger.fine(id + ": updated " + receivedId + "'s heartbeat sequence to " + receivedHeartbeat + " based on message from " + (m.getSenderPort() - 6) + " at node time " + currentTime);
                     }
                 }
             } else {
@@ -193,7 +193,7 @@ public class Gossiper extends Thread implements LoggingServer {
         if(randomPeer == null)
             return;
         // Send gossip to it
-        peerServer.sendMessage(MessageType.GOSSIP, serializeHeartbeatTable(), randomPeer);
+        peerServer.sendGossip(serializeHeartbeatTable(), randomPeer);
         this.logger.fine("Sent gossip message to " + randomPeer);
     }
 

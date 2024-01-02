@@ -31,6 +31,10 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
     private JavaRunnerFollower javaRunnerFollower = null;
     private RoundRobinLeader roundRobinLeader = null;
     private Gossiper gossiper;
+    private UDPMessageSender gossipSenderWorker;
+    private UDPMessageReceiver gossipReceiverWorker;
+    private LinkedBlockingQueue<Message> gossipOutgoingMessages;
+    private LinkedBlockingQueue<Message> gossipIncomingMessages;
 
     private Logger logger;
 
@@ -41,6 +45,8 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
         this.state = ServerState.LOOKING;
         this.outgoingMessages = new LinkedBlockingQueue<>();
         this.incomingMessages = new LinkedBlockingQueue<>();
+        this.gossipIncomingMessages = new LinkedBlockingQueue<>();
+        this.gossipOutgoingMessages = new LinkedBlockingQueue<>();
         this.id = serverID;
         this.gatewayID = gatewayID;
         this.peerEpoch = peerEpoch;
@@ -61,6 +67,8 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
         this.receiverWorker.shutdown();
         this.javaRunnerFollower.shutdown();
         this.roundRobinLeader.shutdown();
+        this.gossipReceiverWorker.shutdown();
+        this.gossipSenderWorker.shutdown();
         this.gossiper.shutdown();
     }
 
@@ -90,6 +98,16 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
     public void sendBroadcast(MessageType type, byte[] messageContents) {
         for(InetSocketAddress target : this.peerIDtoAddress.values()){
             sendMessage(type, messageContents, target);
+        }
+    }
+
+    public void sendGossip(byte[] messageContents, InetSocketAddress target) throws IllegalArgumentException {
+        // fill in
+        Message message = new Message(MessageType.GOSSIP, messageContents, this.myAddress.getHostString(), this.myPort + 6, target.getHostString(), target.getPort() + 6);
+        try {
+            this.gossipOutgoingMessages.put(message);
+        } catch (InterruptedException e) {
+            this.logger.log(Level.WARNING,"failed to send a message", e);
         }
     }
 
@@ -194,15 +212,18 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
             // step 2: create thread that listens for udp messages sent to this server
             receiverWorker = new UDPMessageReceiver(this.incomingMessages, this.myAddress, this.myPort, this);
 
-
+            gossipSenderWorker = new UDPMessageSender(this.gossipOutgoingMessages, this.myPort + 6);
+            gossipReceiverWorker = new UDPMessageReceiver(this.gossipIncomingMessages, new InetSocketAddress("localhost",this.myPort + 6), this.myPort + 6, this);
             // step 3: create follower thread
             this.javaRunnerFollower = new JavaRunnerFollower(this, this.getUdpPort());
             // step 4: create leader thread
             this.roundRobinLeader = new RoundRobinLeader(this, this.peerIDtoAddress);
-            this.gossiper = new Gossiper(this, incomingMessages);
+            this.gossiper = new Gossiper(this, gossipIncomingMessages);
 
             senderWorker.start();
             receiverWorker.start();
+            gossipReceiverWorker.start();
+            gossipSenderWorker.start();
             this.gossiper.start();
         } catch (IOException e) {
             this.logger.log(Level.SEVERE, "Failed to start worker threads", e);
