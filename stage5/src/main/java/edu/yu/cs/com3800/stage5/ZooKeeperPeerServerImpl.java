@@ -165,6 +165,8 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
         if (currentLeader != null && peerID == currentLeader.getProposedLeaderID()) {
             peerEpoch++;
             currentLeader = null;
+            incomingMessages.clear();
+            outgoingMessages.clear();
             if(this.getPeerState() == ServerState.FOLLOWING){
                 setPeerState(ServerState.LOOKING);
                 gossiper.switchState();
@@ -261,7 +263,7 @@ public class ZooKeeperPeerServerImpl extends Thread implements ZooKeeperPeerServ
                         break;
                     case OBSERVER:
                         if (currentLeader == null) {
-                            this.logger.fine("Server "+this.id+" starting leader election as an observer");
+                            this.logger.fine("Server "+this.id+" starting leader election as an observer.\nEpoch round: " + peerEpoch);
                             Vote newLeader2 = new ZooKeeperLeaderElection(this, incomingMessages).lookForLeader();
                             setCurrentLeader(newLeader2);
                             this.logger.info("Observer found out that new leader is server "+this.currentLeader.getProposedLeaderID());
