@@ -111,6 +111,7 @@ public class Gossiper extends Thread implements LoggingServer {
             // Check all entries of the heartbeat table and check if there are
             // nodes that failed
             checkFailures(currentTime);
+
             // If a node failed and CLEANUP milliseconds passed - delete
             // from the heartbeat table
             checkCleanUp(currentTime);
@@ -167,6 +168,8 @@ public class Gossiper extends Thread implements LoggingServer {
     }
 
     private void checkFailures(long currentTime) {
+        // Iterate all the entries of the heartbeat table, if didn't receive a heartbeat for
+        // for longer than FAIL milliseconds declare the node as failed
         for (Map.Entry<Long, HeartBeat> entry : heartbeatTable.entrySet()) {
             if (peerServer.isPeerDead(entry.getKey())) {
                 continue;
@@ -180,7 +183,7 @@ public class Gossiper extends Thread implements LoggingServer {
     }
 
     private void checkCleanUp(long currentTime) {
-        //  Delete from the table after CLEANUP
+        //  Delete from the table after failed nodes after CLEANUP milliseconds
         heartbeatTable.entrySet().removeIf(entry -> currentTime - entry.getValue().time() > CLEANUP);
     }
 

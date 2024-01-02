@@ -1,7 +1,8 @@
 #! /bin/bash
 
+# Daniel Teshuva
 
-exec &> >(tee output.log) # send output to file
+exec &> >(tee output.log)
 
 
 mvn clean test

@@ -41,7 +41,7 @@ public class Demo {
         for (int nodeId = 0; nodeId < 8; nodeId++) {
             nodes[nodeId] = new ProcessBuilder("java", "-cp", "target/classes", "edu.yu.cs.com3800.stage5.demo.NodeRunner", Integer.toString(nodeId)).inheritIO().start();
         }
-        Thread.sleep(2000); // wait for nodes to start up
+        Thread.sleep(2000);
 
         // 3. Wait until the election has completed before sending any requests to the Gateway
         OptionalInt leaderId;
@@ -50,6 +50,8 @@ public class Demo {
         }
 
         // 4. Once the gateway has a leader, send 9 client requests.
+        // Script should print out both the request and the response from
+        // the cluster. In other words, you wait to get all the responses and print them out.
         List<Future<HttpResponse<String>>> responses = new ArrayList<>(9);
         responses.add(0, null);
         for (int i = 1; i <= 9; i++) {
@@ -57,7 +59,7 @@ public class Demo {
             responses.add(i, executor.submit(new sendCompileAndRun(request)));
             System.out.println(request + "\n");
         }
-        // wait to get all the responses and print them out
+
         for (int i = 1; i <= 9; i++) {
             var response = responses.get(i).get();
             System.out.println("Status code: " + response.statusCode() + "\n" + response.body() +"\n");
@@ -67,8 +69,8 @@ public class Demo {
         int toKill = leaderId.getAsInt() == 2 ? 3 : 2;
         System.out.println("Killing follower with ID " + toKill + "\n");
         nodes[toKill].destroyForcibly();
-        Thread.sleep(Gossiper.CLEANUP); // wait for others to notice it is dead
-        getLeaderFromGateway(); // retrieve and display the list of nodes from the Gateway. The dead node should not be on the list
+        Thread.sleep(Gossiper.CLEANUP);
+        getLeaderFromGateway();
 
         // 6. kill -9 the leader JVM and then pause 1000 milliseconds.
         toKill = leaderId.getAsInt();
@@ -105,7 +107,7 @@ public class Demo {
         // 9. List the paths to files containing the Gossip messages received by each node.
         String summaryLoggerName;
         String verboseLoggerName;
-        // List the paths to files containing the Gossip messages received by each node.
+
         for(int port : NODE_PORTS){
 
             summaryLoggerName = "Summary-logger-" + Gossiper.class.getCanonicalName()  + "-on-server-with-udpPort-" + port;
@@ -150,8 +152,8 @@ public class Demo {
             String[] lines = response.body().split("\n");
             for (String line : lines) {
                 if (line.contains("LEADER")) {
-                    String[] parts = line.split(" - "); // Split the line into parts
-                    return OptionalInt.of(Integer.parseInt(parts[0].trim())); // Convert the first part to an integer and return it
+                    String[] parts = line.split(" - ");
+                    return OptionalInt.of(Integer.parseInt(parts[0].trim()));
                 }
             }
         }
