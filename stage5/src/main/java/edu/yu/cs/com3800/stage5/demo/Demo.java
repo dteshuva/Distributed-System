@@ -17,8 +17,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import static edu.yu.cs.com3800.stage5.demo.NodeRunner.GATEWAY_HTTP_PORT;
-import static edu.yu.cs.com3800.stage5.demo.NodeRunner.NODE_PORTS;
+import static edu.yu.cs.com3800.stage5.demo.ServerStarter.GATEWAY_HTTP_PORT;
+import static edu.yu.cs.com3800.stage5.demo.ServerStarter.PEER_SERVER_PORTS;
 
 public class Demo {
 
@@ -39,7 +39,7 @@ public class Demo {
         // 2. Create a cluster of 7 nodes and one gateway, starting each in their own JVM
         Process[] nodes = new Process[8];
         for (int nodeId = 0; nodeId < 8; nodeId++) {
-            nodes[nodeId] = new ProcessBuilder("java", "-cp", "target/classes", "edu.yu.cs.com3800.stage5.demo.NodeRunner", Integer.toString(nodeId)).inheritIO().start();
+            nodes[nodeId] = new ProcessBuilder("java", "-cp", "target/classes", "edu.yu.cs.com3800.stage5.demo.ServerStarter", Integer.toString(nodeId)).inheritIO().start();
         }
         Thread.sleep(2000);
 
@@ -108,7 +108,7 @@ public class Demo {
         String summaryLoggerName;
         String verboseLoggerName;
 
-        for(int port : NODE_PORTS){
+        for(int port : PEER_SERVER_PORTS){
 
             summaryLoggerName = "Summary-logger-" + Gossiper.class.getCanonicalName()  + "-on-server-with-udpPort-" + port;
             System.out.println("./logs/" + summaryLoggerName + ".log");
