@@ -69,7 +69,10 @@ public class Demo {
         int toKill = leaderId.getAsInt() == 2 ? 3 : 2;
         System.out.println("Killing follower with ID " + toKill + "\n");
         nodes[toKill].destroyForcibly();
-        Thread.sleep(Gossiper.CLEANUP);
+        /*
+        I waited a little longer to let all gossipers to notice the failure for sure
+         */
+        Thread.sleep(Gossiper.GOSSIP * 16);
         getLeaderFromGateway();
 
         // 6. kill -9 the leader JVM and then pause 1000 milliseconds.
@@ -89,7 +92,7 @@ public class Demo {
         leaderId = null;
         Thread.sleep(Gossiper.CLEANUP); // wait for the gateway to notice it is dead (it wont have a new leader if it didn't notice yet)
         while ((leaderId = getLeaderFromGateway()).isEmpty()) {
-            Thread.sleep(250);
+            Thread.sleep(1000);
         }
 
         // Print out the responses the client receives from the Gateway for the 9 requests sent in step 6.
